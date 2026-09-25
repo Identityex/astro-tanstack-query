@@ -1,10 +1,16 @@
 ---
 import QueryDevtools from "astro-tanstack-query/components/QueryDevtools.astro";
+import FirstPageCard from "../islands/FirstPageCard.svelte";
+import { $posts } from "../islands/posts";
 import InvalidateButton from "../islands/react/InvalidateButton.tsx";
 import ReactCard from "../islands/react/ThingCard.tsx";
+import PostPager from "../islands/solid/PostPager.tsx";
 import SolidCard from "../islands/solid/ThingCard.tsx";
 import SvelteCard from "../islands/ThingCard.svelte";
 import VueCard from "../islands/ThingCard.vue";
+
+// Page 1 is in the HTML and the state blob, so the pager's Solid SSR and hydration both render it.
+await $posts.prefetch();
 ---
 
 <html lang="en">
@@ -16,6 +22,8 @@ import VueCard from "../islands/ThingCard.vue";
     <SolidCard client:only="solid-js" />
     <div data-island="vanilla">Vanilla: <span>pending</span></div>
     <InvalidateButton client:load />
+    <PostPager client:load />
+    <FirstPageCard client:load />
     <script>
       import { $thing } from "../queries/thing";
       $thing.subscribe((result) => {
