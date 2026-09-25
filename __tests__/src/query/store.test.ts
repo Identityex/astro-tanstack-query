@@ -148,6 +148,63 @@ it("follows an options store", async () => {
   expect($u.key).toBe('["user",2]');
 });
 
+// The observer follows the options store only while mounted, so refetch() has to bring it up to
+// date itself or it fetches the key the store had when it last had a listener.
+it("refetch() on a never-mounted store fetches the options store's current key", async () => {
+  const $options = atom({ queryKey: ["user", 1] as unknown[], queryFn: async () => "user-1" });
+  const $u = createQuery($options);
+  // The first refetch is what creates the observer, with key 1.
+  expect((await $u.refetch()).data).toBe("user-1");
+  $options.set({ queryKey: ["user", 2], queryFn: async () => "user-2" });
+  expect($u.key).toBe('["user",2]');
+  expect((await $u.refetch()).data).toBe("user-2");
+});
+
+it("refetch() after the store unmounted fetches the options store's current key", async () => {
+  const $options = atom({ queryKey: ["member", 1] as unknown[], queryFn: async () => "member-1" });
+  const $u = createQuery($options);
+  const stop = $u.subscribe(() => {});
+  await vi.waitFor(() => expect($u.get().data).toBe("member-1"));
+  stop();
+  await vi.advanceTimersByTimeAsync(1100);
+  $options.set({ queryKey: ["member", 2], queryFn: async () => "member-2" });
+  expect((await $u.refetch()).data).toBe("member-2");
+});
+
+it("forwards refetch() options to the observer", async () => {
+  const $broken = createQuery({
+    queryKey: ["broken-refetch"],
+    queryFn: async (): Promise<string> => {
+      throw new Error("down");
+    },
+    retry: false,
+  });
+  expect((await $broken.refetch()).error?.message).toBe("down");
+  await expect($broken.refetch({ throwOnError: true })).rejects.toThrow("down");
+});
+
+it("forwards invalidate() options to the query client", async () => {
+  let fail = false;
+  const $flaky = createQuery({
+    queryKey: ["broken-invalidate"],
+    queryFn: async () => {
+      if (fail) throw new Error("down");
+      return "up";
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+  const stop = $flaky.subscribe(() => {});
+  try {
+    await vi.waitFor(() => expect($flaky.get().data).toBe("up"));
+    fail = true;
+    await expect($flaky.invalidate()).resolves.toBeUndefined();
+    await expect($flaky.invalidate({ throwOnError: true })).rejects.toThrow("down");
+  } finally {
+    stop();
+  }
+});
+
 it("exposes prefetch, invalidate, setData and refetch on the page client", async () => {
   const queryFn = vi.fn(async () => "v1");
   // staleTime is what keeps this test from racing its own refetch, and it is written out here to

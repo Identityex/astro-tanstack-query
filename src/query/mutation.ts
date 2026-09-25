@@ -68,12 +68,22 @@ export function createMutation<
   };
 
   const store = parts.store as MutationStore<TData, TError, TVariables, TContext>;
-  store.mutate = (variables, mutateOptions) => {
-    observer()
-      .mutate(variables, mutateOptions)
-      .catch(() => undefined);
+  const run: MutationStore<TData, TError, TVariables, TContext>["mutateAsync"] = (
+    variables,
+    mutateOptions,
+  ) => {
+    const native = observer();
+    // MutationObserver fires per-call callbacks only while it has listeners — React Query's
+    // "component still mounted" check. A store used only for its methods (a <script>, an htmx
+    // handler, an island that renders a button) has none, so hold one for the call. A store has
+    // no component lifetime, so this also fires them after the calling island unmounted.
+    const release = store.listen(() => {});
+    return native.mutate(variables, mutateOptions).finally(release);
   };
-  store.mutateAsync = (variables, mutateOptions) => observer().mutate(variables, mutateOptions);
+  store.mutate = (variables, mutateOptions) => {
+    run(variables, mutateOptions).catch(() => undefined);
+  };
+  store.mutateAsync = run;
   store.reset = () => observer().reset();
   return store;
 }

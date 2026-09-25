@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/query-core";
 import { afterEach, expect, it, vi } from "vitest";
+import { createInfiniteQuery } from "../../../src/query/infinite";
 import { SCOPE_KEY, type RequestScope } from "../../../src/query/scope-reader";
 import { createQuery } from "../../../src/query/store";
 
@@ -53,6 +54,24 @@ it("prefetch() uses the request client and an optional server-only fetcher", asy
   const $thing = createQuery({ queryKey: ["thing"], queryFn: clientFn });
   await $thing.prefetch(async () => "server");
   expect(queryClient.getQueryData(["thing"])).toBe("server");
+  expect(clientFn).not.toHaveBeenCalled();
+});
+
+it("infinite prefetch() uses the request client and an optional server-only fetcher", async () => {
+  const queryClient = new QueryClient();
+  publish({ queryClient, url: new URL("http://x/") });
+  const clientFn = vi.fn(async () => ["client"]);
+  const $feed = createInfiniteQuery({
+    queryKey: ["feed"],
+    queryFn: clientFn,
+    initialPageParam: 0,
+    getNextPageParam: () => undefined,
+  });
+  await $feed.prefetch(async ({ pageParam }) => [`server-${pageParam}`]);
+  expect(queryClient.getQueryData(["feed"])).toEqual({
+    pages: [["server-0"]],
+    pageParams: [0],
+  });
   expect(clientFn).not.toHaveBeenCalled();
 });
 

@@ -36,6 +36,15 @@ it("actionMutation resolves data and types errors", async () => {
   await vi.waitFor(() => expect($add.get().error).toBeInstanceOf(FakeActionError));
 });
 
+it("actionMutation fires per-call callbacks without a subscriber", async () => {
+  const add = fakeAction("add", async (n: number) => n + 1);
+  const $add = actionMutation(add);
+  const onSuccess = vi.fn();
+  await $add.mutateAsync(1, { onSuccess });
+  expect(onSuccess).toHaveBeenCalledTimes(1);
+  expect(onSuccess.mock.calls[0]?.[0]).toBe(2);
+});
+
 it("actionQuery keys by action path and input and fetches through orThrow", async () => {
   const list = fakeAction("list", async (input: { page: number }) => [`item-${input.page}`]);
   const $list = actionQuery(list, { page: 2 });
