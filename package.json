@@ -1,6 +1,6 @@
 {
   "name": "astro-tanstack-query",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Unofficial Astro integration: one TanStack Query cache shared by every island on a page — React, Svelte, Vue, Solid, Preact, Alpine, vanilla and htmx — with SSR prefetch, hydration and per-request isolation.",
   "type": "module",
   "license": "MIT",
