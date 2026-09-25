@@ -20,7 +20,7 @@ jobs:
       - run: npm ci
       # Opens or updates the "Version packages" pull request while changesets are pending, and
       # publishes when that pull request is merged.
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
           publish: npm run release
           version: npx changeset version
