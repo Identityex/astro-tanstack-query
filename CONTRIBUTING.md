@@ -20,6 +20,7 @@ You need Node 24 (see `.nvmrc`) and npm.
 git clone https://github.com/Identityex/astro-tanstack-query.git
 cd astro-tanstack-query
 npm install
+npm install --prefix example   # the example app is the end-to-end fixture
 npx lefthook install   # optional: format, lint and commitlint on commit
 ```
 
@@ -40,18 +41,18 @@ docs/design.md    design decisions and the reasons for them
 
 CI runs all of these on every pull request. Run the ones that match your change locally:
 
-| Command                             | What it checks                                        |
-| ----------------------------------- | ----------------------------------------------------- |
-| `npm run format:check`              | Prettier formatting (`npm run format` to fix)         |
-| `npm run lint`                      | Oxlint, then type-aware ESLint                        |
-| `npm run typecheck`                 | Package source and tests                              |
-| `npm run build`                     | ESM output and declarations                           |
-| `npm --workspace example run check` | `astro check` on the example app (run after `build`)  |
-| `npm test`                          | Unit and support tests; builds first                  |
-| `npm run check:package`             | `publint` and Are the Types Wrong (run after `build`) |
-| `npm run size`                      | Bundle-size budgets (run after `build`)               |
-| `npm run e2e`                       | Playwright suite against two builds of the example    |
-| `npm run test:prod`                 | Production checks, such as Devtools exclusion         |
+| Command                          | What it checks                                        |
+| -------------------------------- | ----------------------------------------------------- |
+| `npm run format:check`           | Prettier formatting (`npm run format` to fix)         |
+| `npm run lint`                   | Oxlint, then type-aware ESLint                        |
+| `npm run typecheck`              | Package source and tests                              |
+| `npm run build`                  | ESM output and declarations                           |
+| `npm --prefix example run check` | `astro check` on the example app (run after `build`)  |
+| `npm test`                       | Unit and support tests; builds first                  |
+| `npm run check:package`          | `publint` and Are the Types Wrong (run after `build`) |
+| `npm run size`                   | Bundle-size budgets (run after `build`)               |
+| `npm run e2e`                    | Playwright suite against two builds of the example    |
+| `npm run test:prod`              | Production checks, such as Devtools exclusion         |
 
 Before the first `npm run e2e`, install the browser with `npx playwright install chromium`.
 

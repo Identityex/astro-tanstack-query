@@ -13,7 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version-file: .nvmrc, cache: npm }
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            example/package-lock.json
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
@@ -23,7 +28,8 @@ jobs:
       # the root tsconfig excludes it, because its `astro:*` virtual modules resolve only inside an
       # Astro build. `astro check` runs `astro sync` first, so it is the one checker that sees them.
       # It reads the package through file:.., hence the position after the build.
-      - run: npm --workspace example run check
+      - run: npm ci --prefix example
+      - run: npm --prefix example run check
       - run: npm test
       - run: npm run check:package
       - run: npm run size
