@@ -1,5 +1,6 @@
 ---
 import QueryState from "astro-tanstack-query/components/QueryState.astro";
+import LateThing from "../components/late-thing.astro";
 import StreamTail from "../components/stream-tail.astro";
 import ThingCard from "../islands/ThingCard.svelte";
 import { $thing } from "../queries/thing";
@@ -15,6 +16,7 @@ await $thing.prefetch(async () => ({ value: "server-prefetched", serverHits: 0 }
   <body>
     <ThingCard client:load />
     <StreamTail id={id} />
+    <LateThing />
     {componentEmission && <QueryState />}
   </body>
 </html>

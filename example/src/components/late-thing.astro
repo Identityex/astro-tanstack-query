@@ -1,0 +1,12 @@
+---
+import { $thing } from "../queries/thing";
+
+// Astro starts every sibling after an async one at once, in template order, and <QueryState />
+// renders without awaiting anything. Yielding first puts this read after it has run: where a
+// component-mode page once found the request client already cleared, and rendered "pending"
+// beside state that said "success".
+await new Promise((resolve) => setTimeout(resolve, 0));
+const thing = $thing.get();
+---
+
+<p data-late-thing>Late reader: {thing.isPending ? "pending" : thing.data?.value}</p>

@@ -22,7 +22,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     () => next(),
   );
 
-  return settings.emit === "middleware"
-    ? injectState(response, queryClient, stateWriter)
-    : response;
+  // Both modes go through injectState: it is what releases the request client once the response
+  // has ended. In component mode it only releases; <QueryState /> has written the state itself.
+  return injectState(response, queryClient, settings.emit === "middleware" ? stateWriter : null);
 });
