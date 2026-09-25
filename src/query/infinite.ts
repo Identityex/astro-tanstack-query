@@ -76,13 +76,15 @@ export function createInfiniteQuery<
   const parts = createObserverStore<Options, Result>(
     input,
     (client, options): InfiniteObserverLike => {
+      // On the server, report the fetch the browser's first read will start, without starting
+      // it (D5). The reasoning is at the same site in createQuery.
       const instance = new InfiniteQueryObserver<
         TQueryFnData,
         TError,
         TData,
         TQueryKey,
         TPageParam
-      >(client, options);
+      >(client, isServer() ? { ...options, _optimisticResults: "optimistic" } : options);
       return {
         native: instance,
         subscribe: (listener) => instance.subscribe(listener),

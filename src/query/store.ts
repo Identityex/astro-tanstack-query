@@ -62,7 +62,15 @@ export function createQuery<
   const parts = createObserverStore<Options, Result>(
     input,
     (client, options) =>
-      new QueryObserver<TQueryFnData, TError, TData, TQueryFnData, TQueryKey>(client, options),
+      new QueryObserver<TQueryFnData, TError, TData, TQueryFnData, TQueryKey>(
+        client,
+        // The browser's first read mounts the store, and mounting starts any fetch-on-mount, so
+        // hydration already sees isLoading/isFetching. Optimistic results make the server
+        // snapshot report that same state, as the official React, Vue, Svelte and Solid adapters
+        // do. It changes only what is reported: this observer is never subscribed, so it still
+        // never fetches (D5).
+        isServer() ? { ...options, _optimisticResults: "optimistic" } : options,
+      ),
   );
 
   const store = parts.store as QueryStore<TQueryFnData, TError, TData, TQueryKey>;
