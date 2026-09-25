@@ -1,0 +1,11 @@
+---
+import { holdStream } from "../fixtures/stream-gate";
+
+interface Props {
+  id: string;
+}
+
+await holdStream(Astro.props.id);
+---
+
+<p data-stream-tail>The rest of the document has arrived.</p>

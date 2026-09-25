@@ -1,0 +1,13 @@
+---
+import { ClientRouter } from "astro:transitions";
+import ReactCard from "../../islands/react/ThingCard.tsx";
+---
+
+<html lang="en">
+  <head><ClientRouter /></head>
+  <body>
+    <h1>Page A</h1>
+    <a href="/transitions/b" id="to-b">to B</a>
+    <ReactCard client:load />
+  </body>
+</html>

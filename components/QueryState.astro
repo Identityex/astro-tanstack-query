@@ -1,0 +1,15 @@
+---
+/**
+ * Emits this request's dehydrated Query state where it is placed. Use with
+ * `tanstackQuery({ emit: "component" })` and put it last inside <body>, after
+ * every island, so every prefetch has run. The middleware does this for you
+ * by default; this is the explicit alternative.
+ */
+import { stateScript } from "astro-tanstack-query/server";
+import { stateWriter } from "virtual:astro-tanstack-query/config";
+
+const html = stateScript(Astro.locals.queryClient, stateWriter);
+Astro.locals.queryClient.clear();
+---
+
+<Fragment set:html={html ?? ""} />

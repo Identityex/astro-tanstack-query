@@ -1,0 +1,11 @@
+<html lang="en">
+  <body>
+    <button id="load" hx-get="/api/fragment" hx-target="#frag" hx-ext="tanstack-query" hx-tq-stale-time="60000">load</button>
+    <div id="frag">empty</div>
+    <script>
+      import htmx from "htmx.org";
+      (globalThis as { htmx?: unknown }).htmx = htmx;
+      await import("astro-tanstack-query/htmx");
+    </script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+---
+import QueryState from "astro-tanstack-query/components/QueryState.astro";
+
+await Astro.locals.queryClient.prefetchQuery({
+  queryKey: ["rich"],
+  queryFn: async () => ({ when: new Date(0) }),
+});
+---
+
+<html lang="en">
+  <body>
+    <h1>devalue</h1>
+    <pre id="out">pending</pre>
+    <script>
+      import { getQueryClient } from "astro-tanstack-query/query";
+
+      const rich = getQueryClient().getQueryData<{ when: unknown }>(["rich"]);
+      const out = document.querySelector("#out");
+      if (out) out.textContent = String(rich?.when instanceof Date);
+    </script>
+    <QueryState />
+  </body>
+</html>

@@ -1,0 +1,20 @@
+---
+import SecretReact from "../islands/react/SecretCard.tsx";
+import SecretSvelte from "../islands/SecretCard.svelte";
+import { $secret } from "../queries/secret";
+
+const user = Astro.url.searchParams.get("user") ?? "anon";
+// A slow, server-only fetcher: concurrent requests overlap inside the process.
+await $secret.prefetch(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  return `secret-for-${user}`;
+});
+---
+
+<html lang="en">
+  <body>
+    <p data-page>page: {user}</p>
+    <SecretReact client:load />
+    <SecretSvelte client:load />
+  </body>
+</html>

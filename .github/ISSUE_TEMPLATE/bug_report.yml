@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        This is an unofficial community package. Please report problems with it here, not to
+        the Astro or TanStack projects. Security issues go through
+        [private reporting](https://github.com/Identityex/astro-tanstack-query/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations: { required: true }
+  - type: input
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A link to a minimal repository or StackBlitz project.
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: Output of `npx astro info`, plus the versions of astro-tanstack-query, @tanstack/query-core and nanostores.
+      render: text
+    validations: { required: true }
+  - type: dropdown
+    id: frameworks
+    attributes:
+      label: Island frameworks involved
+      multiple: true
+      options:
+        [React, Preact, Svelte, Vue, Solid, Alpine, Lit, Plain script, htmx, None (server only)]

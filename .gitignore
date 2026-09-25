@@ -1,0 +1,10 @@
+node_modules
+dist
+example/dist
+example/.astro
+.astro
+test-results
+playwright-report
+example/dist-variant
+.DS_Store
+*.tgz

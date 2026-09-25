@@ -1,0 +1,19 @@
+pre-commit:
+  piped: true
+  commands:
+    format:
+      glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,json,md,css,yml,yaml,astro,svelte}"
+      run: npx --no -- prettier --write {staged_files}
+      stage_fixed: true
+    oxlint:
+      glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      run: npx --no -- oxlint --fix --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    lint:
+      glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      run: npx --no -- eslint --fix {staged_files}
+      stage_fixed: true
+commit-msg:
+  commands:
+    commitlint:
+      run: npx --no -- commitlint --edit {1}

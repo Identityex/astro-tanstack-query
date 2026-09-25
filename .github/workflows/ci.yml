@@ -1,0 +1,42 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request: {}
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: npm }
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      # The example app is the only type coverage the Playwright fixture gets: eslint ignores it and
+      # the root tsconfig excludes it, because its `astro:*` virtual modules resolve only inside an
+      # Astro build. `astro check` runs `astro sync` first, so it is the one checker that sees them.
+      # It reads the package through file:.., hence the position after the build.
+      - run: npm --workspace example run check
+      - run: npm test
+      - run: npm run check:package
+      - run: npm run size
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - run: npm run test:prod
+
+  # `engines` promises Node 22; the full suite above runs on the pinned development version.
+  node-22:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test

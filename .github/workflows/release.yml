@@ -1,0 +1,33 @@
+name: release
+on:
+  push: { branches: [main] }
+permissions:
+  contents: write
+  pull-requests: write
+  # npm trusted publishing (OIDC) and provenance attestations.
+  id-token: write
+concurrency: release-${{ github.ref }}
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      # Opens or updates the "Version packages" pull request while changesets are pending, and
+      # publishes when that pull request is merged.
+      - uses: changesets/action@v1
+        with:
+          publish: npm run release
+          version: npx changeset version
+          title: "chore: version packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Unused once npm trusted publishing is configured for this repository; until then,
+          # an automation token. Trusted publishing can only be set up on a package that exists.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

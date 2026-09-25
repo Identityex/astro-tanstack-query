@@ -1,0 +1,35 @@
+{
+  "name": "example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "check": "astro check",
+    "start": "node \"${ASTRO_TQ_OUT:-dist}/server/entry.mjs\""
+  },
+  "dependencies": {
+    "@astrojs/node": "^11.1.5",
+    "@astrojs/react": "^6.0.5",
+    "@astrojs/solid-js": "^7.0.2",
+    "@astrojs/svelte": "^9.0.1",
+    "@astrojs/vue": "^7.0.2",
+    "@nanostores/react": "^2.0.1",
+    "@nanostores/solid": "^1.1.1",
+    "@nanostores/vue": "^1.1.0",
+    "@tanstack/query-core": "^5.102.8",
+    "astro": "^7.3.2",
+    "astro-tanstack-query": "file:..",
+    "htmx.org": "^2.0.10",
+    "nanostores": "^1.5.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "solid-js": "^1.9.15",
+    "svelte": "^5.57.0",
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "typescript": "~5.9.0"
+  }
+}

@@ -1,0 +1,21 @@
+---
+export interface Props {
+  buttonPosition?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "relative";
+  position?: "top" | "bottom" | "left" | "right";
+  initialIsOpen?: boolean;
+}
+const options = JSON.stringify(Astro.props);
+---
+
+{import.meta.env.DEV && <astro-tq-devtools data-options={options}></astro-tq-devtools>}
+
+<script>
+  if (import.meta.env.DEV) {
+    const host = document.querySelector<HTMLElement>("astro-tq-devtools");
+    if (host) {
+      import("astro-tanstack-query/devtools/client").then(({ mountDevtools }) =>
+        mountDevtools(host, JSON.parse(host.dataset["options"] ?? "{}") as Record<string, never>),
+      );
+    }
+  }
+</script>

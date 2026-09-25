@@ -1,0 +1,20 @@
+---
+import QueryState from "astro-tanstack-query/components/QueryState.astro";
+import StreamTail from "../components/stream-tail.astro";
+import ThingCard from "../islands/ThingCard.svelte";
+import { $thing } from "../queries/thing";
+
+const id = Astro.url.searchParams.get("id");
+if (!id) return new Response("The streaming test needs a gate id.", { status: 400 });
+const componentEmission = Astro.url.searchParams.get("emit") === "component";
+
+await $thing.prefetch(async () => ({ value: "server-prefetched", serverHits: 0 }));
+---
+
+<html lang="en">
+  <body>
+    <ThingCard client:load />
+    <StreamTail id={id} />
+    {componentEmission && <QueryState />}
+  </body>
+</html>

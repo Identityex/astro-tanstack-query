@@ -1,0 +1,28 @@
+---
+import QueryDevtools from "astro-tanstack-query/components/QueryDevtools.astro";
+import InvalidateButton from "../islands/react/InvalidateButton.tsx";
+import ReactCard from "../islands/react/ThingCard.tsx";
+import SolidCard from "../islands/solid/ThingCard.tsx";
+import SvelteCard from "../islands/ThingCard.svelte";
+import VueCard from "../islands/ThingCard.vue";
+---
+
+<html lang="en">
+  <body>
+    <h1>One cache, four frameworks</h1>
+    <ReactCard client:load />
+    <SvelteCard client:load />
+    <VueCard client:load />
+    <SolidCard client:only="solid-js" />
+    <div data-island="vanilla">Vanilla: <span>pending</span></div>
+    <InvalidateButton client:load />
+    <script>
+      import { $thing } from "../queries/thing";
+      $thing.subscribe((result) => {
+        const el = document.querySelector('[data-island="vanilla"] span');
+        if (el) el.textContent = result.isPending ? "pending" : (result.data?.value ?? "");
+      });
+    </script>
+    <QueryDevtools />
+  </body>
+</html>
