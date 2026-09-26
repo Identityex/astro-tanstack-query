@@ -7,6 +7,10 @@ import {
   type StoreValue,
   type StoreValues,
 } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import type { Listener, ListenerValue } from "./observer-store";
 import { isServer } from "./scope-reader";
 
@@ -42,7 +46,9 @@ export function derived<Value>(
   // Both branches are textually identical on purpose: `computed` has no overload accepting the
   // un-narrowed `Store | readonly Store[]`, so the ternary exists solely to pick one. Collapsing
   // it fails to compile.
-  if (!isServer()) return isMultiple(sources) ? computed(sources, fn) : computed(sources, fn);
+  if (!(!browserBuild && isServer())) {
+    return isMultiple(sources) ? computed(sources, fn) : computed(sources, fn);
+  }
 
   // Reading through Gettable<unknown> rather than Store keeps the values `unknown` on the way
   // into fn; Store's own `get()` is typed `any`, which would wave every arg through unchecked.

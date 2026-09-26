@@ -18,7 +18,7 @@ import { installTestQueryConfig, resetTestQueryClient } from "../../../src/testi
  */
 
 type Resolver = (id: string) => string | undefined;
-type Loader = (id: string) => string | undefined;
+type Loader = (id: string, opts?: { ssr?: boolean }) => string | undefined;
 type Configure = () => UserConfig;
 
 afterEach(async () => {
@@ -96,6 +96,13 @@ it("serves the virtual config module Astro's own plugin serves", () => {
   );
   expect(code).toContain("export const defaultOptions = user.defaultOptions ?? {};");
   expect(code).toContain('"ssrStaleTime":60000');
+});
+
+it("keeps the server check at run time even when Vitest loads a test as client code", () => {
+  // Vitest hands a DOM-environment test file to the plugin as a client module, and a test there
+  // may still remove `window` to reach the server path, which a folded check would never take.
+  const load = installTestQueryConfig().load as Loader;
+  expect(load("\0" + VIRTUAL_ID, { ssr: false })).toContain("export const browserBuild = false;");
 });
 
 it("takes the integration's options, so a devalue consumer tests devalue", () => {

@@ -1,15 +1,28 @@
 ---
 /**
  * Emits this request's dehydrated Query state where it is placed. Use with
- * `tanstackQuery({ emit: "component" })` and put it last inside <body>, after
- * every island, so every prefetch has run. The middleware does this for you
- * by default; this is the explicit alternative.
+ * `tanstackQuery({ emit: "component" })` and put it last inside <body>. It
+ * captures every prefetch awaited in page or layout frontmatter. Astro renders
+ * the components after an async sibling concurrently with this one, so a
+ * prefetch in their frontmatter may finish after it has run; the default
+ * middleware emission, which writes the state once the body has streamed,
+ * captures those too. A `server:defer` component renders in a request of its
+ * own: put one last inside that component too.
  */
-import { stateScript } from "astro-tanstack-query/server";
+import { SERVER_ISLAND_ROUTE, stateScript, warnOnLatePrefetch } from "astro-tanstack-query/server";
 import { stateWriter } from "virtual:astro-tanstack-query/config";
 
-const html = stateScript(Astro.locals.queryClient, stateWriter);
-Astro.locals.queryClient.clear();
+const client = Astro.locals.queryClient;
+// As the middleware does: `astro build` has DEV false, and prerendering is where a prefetch
+// through absoluteUrl() fails. Inside a server:defer component it writes the id-less element the
+// page client drains, so it never shadows the page's own.
+const html = stateScript(client, stateWriter, {
+  warn: import.meta.env.DEV || Astro.isPrerendered,
+  island: Astro.routePattern === SERVER_ISLAND_ROUTE,
+});
+// Not cleared here: siblings rendering concurrently may still read the client. The middleware
+// releases it once the response has streamed.
+if (import.meta.env.DEV) warnOnLatePrefetch(client);
 ---
 
 <Fragment set:html={html ?? ""} />

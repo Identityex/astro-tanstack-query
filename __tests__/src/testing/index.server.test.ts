@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/query-core";
 import { expect, it, vi } from "vitest";
 import { absoluteUrl, createQuery, getQueryClient } from "../../../src/query/index";
+import { currentScope } from "../../../src/server/index";
 import { runInTestRequest } from "../../../src/testing/index";
 
 /**
@@ -33,6 +34,12 @@ it("takes the page's url and a client of the caller's own", () => {
   });
   expect(seen.url.href).toBe("https://example.com/posts/hello-world");
   expect(seen.queryClient).toBe(queryClient);
+});
+
+it("tells the code under test whether the page is being prerendered", () => {
+  expect(runInTestRequest((scope) => scope.isPrerendered, { isPrerendered: true })).toBe(true);
+  expect(runInTestRequest(() => currentScope()?.isPrerendered, { isPrerendered: true })).toBe(true);
+  expect(runInTestRequest((scope) => scope.isPrerendered)).toBeFalsy();
 });
 
 it("leaves no scope behind for the next test", () => {

@@ -1,18 +1,54 @@
 import {
   InfiniteQueryObserver,
   hashKey,
+  type DataTag,
   type DefaultError,
+  type DefinedInfiniteQueryObserverResult,
   type InfiniteData,
   type InfiniteQueryObserverOptions,
   type InfiniteQueryObserverResult,
+  type InvalidateOptions,
+  type NonUndefinedGuard,
+  type OmitKeyof,
+  type QueryFunction,
   type QueryKey,
+  type RefetchOptions,
   type Updater,
 } from "@tanstack/query-core";
 import type { ReadableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { getQueryClient } from "./client";
 import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore, type ObserverLike } from "./observer-store";
 import { isServer } from "./scope-reader";
+
+/** `InfiniteQueryObserver`'s options without `throwOnError` and `suspense`, as `QueryStoreOptions`. */
+export type InfiniteQueryStoreOptions<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+> = OmitKeyof<
+  InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>,
+  "throwOnError" | "suspense"
+>;
+
+/** Options whose `initialData` is always defined, so the store's `data` is never `undefined`. */
+export type DefinedInitialDataInfiniteQueryStoreOptions<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+> = InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam> & {
+  initialData:
+    | NonUndefinedGuard<InfiniteData<TQueryFnData, TPageParam>>
+    | (() => NonUndefinedGuard<InfiniteData<TQueryFnData, TPageParam>>);
+};
 
 export interface InfiniteQueryStore<
   TQueryFnData = unknown,
@@ -20,21 +56,23 @@ export interface InfiniteQueryStore<
   TData = InfiniteData<TQueryFnData>,
   TQueryKey extends QueryKey = QueryKey,
   TPageParam = unknown,
-> extends ReadableAtom<InfiniteQueryObserverResult<TData, TError>> {
+  TResult = InfiniteQueryObserverResult<TData, TError>,
+> extends ReadableAtom<TResult> {
   /** `hashKey(queryKey)` of the current options. */
   readonly key: string;
-  readonly options: InfiniteQueryObserverOptions<
+  /** The current options. `queryKey` is tagged with the cached pages, so `getQueryData` is typed. */
+  readonly options: InfiniteQueryStoreOptions<
     TQueryFnData,
     TError,
     TData,
     TQueryKey,
     TPageParam
-  >;
-  /** Server: prefetch into the request client. Browser: prefetch into the page client. */
-  prefetch(): Promise<void>;
-  /** Browser only. */
-  refetch(): Promise<InfiniteQueryObserverResult<TData, TError>>;
-  invalidate(): Promise<void>;
+  > & { queryKey: DataTag<TQueryKey, InfiniteData<TQueryFnData, TPageParam>, TError> };
+  /** Server: prefetch into the request client (optionally with a server-only fetcher). Browser: prefetch into the page client. */
+  prefetch(serverQueryFn?: QueryFunction<TQueryFnData, TQueryKey, TPageParam>): Promise<void>;
+  /** Browser only. Fetches the key of the current options, even when the store is not mounted. */
+  refetch(options?: RefetchOptions): Promise<InfiniteQueryObserverResult<TData, TError>>;
+  invalidate(options?: InvalidateOptions): Promise<void>;
   /** The cached value of an infinite query is every page it has fetched, not one page. */
   setData(
     updater: Updater<
@@ -44,6 +82,23 @@ export interface InfiniteQueryStore<
   ): InfiniteData<TQueryFnData, TPageParam> | undefined;
 }
 
+/** An infinite store seeded with `initialData`, whose `data` is therefore never `undefined`. */
+export type DefinedInfiniteQueryStore<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+> = InfiniteQueryStore<
+  TQueryFnData,
+  TError,
+  TData,
+  TQueryKey,
+  TPageParam,
+  DefinedInfiniteQueryObserverResult<TData, TError>
+>;
+
+/** With `initialData`, `data` is never `undefined`, as with `createQuery`. */
 export function createInfiniteQuery<
   TQueryFnData,
   TError = DefaultError,
@@ -52,12 +107,46 @@ export function createInfiniteQuery<
   TPageParam = unknown,
 >(
   input:
-    | InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+    | DefinedInitialDataInfiniteQueryStoreOptions<
+        TQueryFnData,
+        TError,
+        TData,
+        TQueryKey,
+        TPageParam
+      >
     | ReadableAtom<
-        InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+        DefinedInitialDataInfiniteQueryStoreOptions<
+          TQueryFnData,
+          TError,
+          TData,
+          TQueryKey,
+          TPageParam
+        >
       >,
+): DefinedInfiniteQueryStore<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
+export function createInfiniteQuery<
+  TQueryFnData,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+>(
+  input:
+    | InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+    | ReadableAtom<InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>>,
+): InfiniteQueryStore<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
+export function createInfiniteQuery<
+  TQueryFnData,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+>(
+  input:
+    | InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+    | ReadableAtom<InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>>,
 ): InfiniteQueryStore<TQueryFnData, TError, TData, TQueryKey, TPageParam> {
-  type Options = InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
+  type Options = InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
   type Result = InfiniteQueryObserverResult<TData, TError>;
   type Native = InfiniteQueryObserver<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
 
@@ -71,13 +160,18 @@ export function createInfiniteQuery<
   const parts = createObserverStore<Options, Result>(
     input,
     (client, options): InfiniteObserverLike => {
+      // On the server, report the fetch the browser's first read will start, without starting
+      // it (D5). The reasoning is at the same site in createQuery.
       const instance = new InfiniteQueryObserver<
         TQueryFnData,
         TError,
         TData,
         TQueryKey,
         TPageParam
-      >(client, options);
+      >(
+        client,
+        !browserBuild && isServer() ? { ...options, _optimisticResults: "optimistic" } : options,
+      );
       return {
         native: instance,
         subscribe: (listener) => instance.subscribe(listener),
@@ -101,24 +195,34 @@ export function createInfiniteQuery<
     key: { get: () => hashKey(parts.resolveOptions().queryKey) },
     options: { get: () => parts.resolveOptions() },
   });
-  store.prefetch = async () => {
-    await getQueryClient().prefetchInfiniteQuery(parts.resolveOptions());
+  store.prefetch = async (serverQueryFn) => {
+    const options = parts.resolveOptions();
+    await getQueryClient().prefetchInfiniteQuery({
+      ...options,
+      ...(serverQueryFn ? { queryFn: serverQueryFn } : {}),
+    });
   };
   // Not async, so the server misuse throws where it is called rather than landing as an
   // unhandled rejection — the same shape as createQuery's refetch().
-  store.refetch = () => {
-    if (isServer()) {
+  store.refetch = (options) => {
+    if (!browserBuild && isServer()) {
       throw new TanstackQueryAstroError(
         "browser-only",
         "refetch() is browser-only; on the server use prefetch().",
       );
     }
+    const current = parts.observer() as InfiniteObserverLike;
+    // Bring an unmounted observer up to the current options first, as createQuery's refetch does.
+    current.setOptions(parts.resolveOptions());
     // refetch() is inherited from QueryObserver too, so it is declared to resolve to the
     // narrower QueryObserverResult; the value is this observer's own result. Re-widen it.
-    return (parts.observer() as InfiniteObserverLike).native.refetch() as Promise<Result>;
+    return current.native.refetch(options) as Promise<Result>;
   };
-  store.invalidate = () =>
-    getQueryClient().invalidateQueries({ queryKey: parts.resolveOptions().queryKey, exact: true });
+  store.invalidate = (options) =>
+    getQueryClient().invalidateQueries(
+      { queryKey: parts.resolveOptions().queryKey, exact: true },
+      options,
+    );
   store.setData = (updater) =>
     getQueryClient().setQueryData<InfiniteData<TQueryFnData, TPageParam>>(
       parts.resolveOptions().queryKey,

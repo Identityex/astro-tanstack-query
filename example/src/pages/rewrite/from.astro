@@ -1,0 +1,10 @@
+---
+import { createQuery } from "astro-tanstack-query/query";
+
+// The "load the entity, not found: render the 404 page instead" pattern. Astro.rewrite() runs the
+// middleware again from inside this page; what this page prefetched must still reach the browser.
+const $entity = createQuery({ queryKey: ["rewritten-from"], queryFn: async () => "unused" });
+await $entity.prefetch(async () => "prefetched before the rewrite");
+
+return Astro.rewrite(`/rewrite/target${Astro.url.search}`);
+---

@@ -1,0 +1,23 @@
+---
+import QueryState from "astro-tanstack-query/components/QueryState.astro";
+import DeferredThing from "../components/deferred-thing.astro";
+import ThingCard from "../islands/react/ThingCard.tsx";
+import { $thing } from "../queries/thing";
+
+const componentEmission = Astro.url.searchParams.get("emit") === "component";
+// Without the page's own island, the first store read happens inside the server island.
+const alone = Astro.url.searchParams.has("alone");
+
+// The page carries a state element of its own, which the server island's must not shadow.
+await $thing.prefetch(async () => ({ value: "page-prefetched", serverHits: 0 }));
+---
+
+<html lang="en">
+  <body>
+    {!alone && <ThingCard client:load />}
+    <DeferredThing server:defer componentEmission={componentEmission}>
+      <p slot="fallback" data-fallback>Loading the deferred thing…</p>
+    </DeferredThing>
+    {componentEmission && <QueryState />}
+  </body>
+</html>

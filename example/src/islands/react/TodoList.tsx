@@ -1,8 +1,8 @@
 import { useStore } from "@nanostores/react";
 import { actions } from "astro:actions";
-import { actionMutation, actionQuery } from "astro-tanstack-query/actions";
+import { actionMutation, actionQuery, isActionError } from "astro-tanstack-query/actions";
 
-const $todos = actionQuery(actions.listTodos, undefined);
+const $todos = actionQuery(actions.listTodos);
 const $add = actionMutation(actions.addTodo, { onSuccess: () => $todos.invalidate() });
 
 export default function TodoList() {
@@ -17,7 +17,7 @@ export default function TodoList() {
       </ul>
       <button onClick={() => $add.mutate({ text: "milk" })}>add milk</button>
       <button onClick={() => $add.mutate({ text: "boom" })}>add boom</button>
-      <p data-error>{add.error?.code ?? ""}</p>
+      <p data-error>{isActionError(add.error) ? add.error.code : ""}</p>
     </div>
   );
 }

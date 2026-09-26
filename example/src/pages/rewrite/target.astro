@@ -1,0 +1,17 @@
+---
+import QueryState from "astro-tanstack-query/components/QueryState.astro";
+import { createQuery } from "astro-tanstack-query/query";
+import { currentScope } from "astro-tanstack-query/server";
+
+const componentEmission = Astro.url.searchParams.get("emit") === "component";
+
+const $copy = createQuery({ queryKey: ["rewrite-target"], queryFn: async () => "unused" });
+await $copy.prefetch(async () => "prefetched after the rewrite");
+---
+
+<html lang="en">
+  <body>
+    <p data-scope-path>{currentScope()?.url.pathname}</p>
+    {componentEmission && <QueryState />}
+  </body>
+</html>

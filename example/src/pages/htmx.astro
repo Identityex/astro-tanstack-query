@@ -6,6 +6,7 @@
       import htmx from "htmx.org";
       (globalThis as { htmx?: unknown }).htmx = htmx;
       await import("astro-tanstack-query/htmx");
+      document.body.dataset.tqHtmxReady = "";
     </script>
   </body>
 </html>

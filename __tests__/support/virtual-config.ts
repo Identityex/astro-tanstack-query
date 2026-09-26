@@ -1,7 +1,14 @@
 import type { DefaultOptions } from "@tanstack/query-core";
+import type { settings as generated } from "virtual:astro-tanstack-query/config";
 import { reader, writer } from "../../src/serializer/json";
 
 export const defaultOptions: DefaultOptions = {};
 export const stateReader = reader;
 export const stateWriter = writer;
-export const settings = { emit: "middleware" as const, ssrStaleTime: 60_000 };
+// Typed by the module's own declaration (TypeScript does not see the test alias), so this cannot
+// drift from what the plugin generates. `origin` is absent, as it is while `ssr.origin` is unset.
+export const settings: typeof generated = { emit: "middleware", ssrStaleTime: 60_000 };
+// False, as installTestQueryConfig generates it: every store decides by `window` at run time, which
+// the tests that stub `window` mid-file rely on. The tree-shaking suite builds the true case with
+// the plugin itself.
+export const browserBuild = false;

@@ -3,7 +3,7 @@ pre-commit:
   commands:
     format:
       glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,json,md,css,yml,yaml,astro,svelte}"
-      run: npx --no -- prettier --write {staged_files}
+      run: npx --no -- prettier --write --ignore-unknown {staged_files}
       stage_fixed: true
     oxlint:
       glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
