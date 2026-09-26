@@ -1,5 +1,9 @@
 import { QueryClient, notifyManager } from "@tanstack/query-core";
 import { atom, onMount, type ReadableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { pageClient } from "./client";
 import { isServer, requestScope } from "./scope-reader";
 
@@ -29,9 +33,13 @@ function isStore<T>(value: T | ReadableAtom<T>): value is ReadableAtom<T> {
 
 // Used only to shape placeholder results on the server when no request scope exists.
 // It is never prefetched into and never reachable by users. Deliberately not memoised: every
-// read builds a Query in the client's cache, and on the server `gcTime` is Infinity, for which
-// no eviction timer is ever armed — a shared client would grow one entry per key for the life
+// read builds a Query in the client's cache, and on the server `gcTime` defaults to Infinity, for
+// which no eviction timer is armed — a shared client would grow one entry per key for the life
 // of the isolate, on exactly the runtimes (Cloudflare, Vercel Edge) that reach this path.
+// Infinity is only the default: a store's own `gcTime` arms a timer here too, which holds only
+// this throwaway client and its one empty query until it fires. The request client is different:
+// an explicit `gcTime` arms timers there that only the end-of-request `clear()` cancels
+// (design.md §3.2).
 const detachedClient = () => new QueryClient();
 
 let warnedNoScope = false;
@@ -70,7 +78,7 @@ export function createObserverStore<TOptions, TResult>(
   const observer = (): ObserverLike<TOptions, TResult> =>
     (observerInstance ??= makeObserver(pageClient(), resolveOptions()));
 
-  if (isServer()) {
+  if (!browserBuild && isServer()) {
     const snapshot = (): TResult => {
       const scope = requestScope();
       if (!scope) warnNoScopeOnce();

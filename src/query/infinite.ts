@@ -16,6 +16,10 @@ import {
   type Updater,
 } from "@tanstack/query-core";
 import type { ReadableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { getQueryClient } from "./client";
 import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore, type ObserverLike } from "./observer-store";
@@ -164,7 +168,10 @@ export function createInfiniteQuery<
         TData,
         TQueryKey,
         TPageParam
-      >(client, isServer() ? { ...options, _optimisticResults: "optimistic" } : options);
+      >(
+        client,
+        !browserBuild && isServer() ? { ...options, _optimisticResults: "optimistic" } : options,
+      );
       return {
         native: instance,
         subscribe: (listener) => instance.subscribe(listener),
@@ -198,7 +205,7 @@ export function createInfiniteQuery<
   // Not async, so the server misuse throws where it is called rather than landing as an
   // unhandled rejection — the same shape as createQuery's refetch().
   store.refetch = (options) => {
-    if (isServer()) {
+    if (!browserBuild && isServer()) {
       throw new TanstackQueryAstroError(
         "browser-only",
         "refetch() is browser-only; on the server use prefetch().",

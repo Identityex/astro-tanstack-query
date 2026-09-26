@@ -1,5 +1,9 @@
 import { hashKey, type DefaultError, type QueryKey } from "@tanstack/query-core";
 import { STORE_UNMOUNT_DELAY, atom, onMount, type WritableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { isServer } from "./scope-reader";
 import {
   createQuery,
@@ -58,7 +62,7 @@ export function family<
   const members = new Map<string, Member>();
   return (params) => {
     const options = define(params);
-    if (isServer()) return createQuery(options);
+    if (!browserBuild && isServer()) return createQuery(options);
     const key = hashKey(options.queryKey);
     const existing = members.get(key);
     if (existing) {

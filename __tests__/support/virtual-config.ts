@@ -8,3 +8,7 @@ export const stateWriter = writer;
 // Typed by the module's own declaration (TypeScript does not see the test alias), so this cannot
 // drift from what the plugin generates. `origin` is absent, as it is while `ssr.origin` is unset.
 export const settings: typeof generated = { emit: "middleware", ssrStaleTime: 60_000 };
+// False, as installTestQueryConfig generates it: every store decides by `window` at run time, which
+// the tests that stub `window` mid-file rely on. The tree-shaking suite builds the true case with
+// the plugin itself.
+export const browserBuild = false;

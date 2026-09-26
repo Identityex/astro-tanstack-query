@@ -1,12 +1,20 @@
 import { QueryClient, hydrate } from "@tanstack/query-core";
-import { defaultOptions, settings, stateReader } from "virtual:astro-tanstack-query/config";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import {
+  browserBuild,
+  defaultOptions,
+  settings,
+  stateReader,
+} from "virtual:astro-tanstack-query/config";
 import { STATE_ELEMENT_ID } from "../serializer/types";
 import { TanstackQueryAstroError } from "./errors";
 import { documentReady } from "./document-ready";
 import { isServer, requestScope } from "./scope-reader";
 
 // Holding module evaluation also holds island hydration: no loading flash or premature fetch.
-if (!isServer()) await documentReady(document);
+if (!(!browserBuild && isServer())) await documentReady(document);
 
 let page: QueryClient | undefined;
 let islands: MutationObserver | undefined;
@@ -17,7 +25,7 @@ let islands: MutationObserver | undefined;
  * refetchOnWindowFocus / refetchOnReconnect — without it they are silently dead.
  */
 export function pageClient(): QueryClient {
-  if (isServer()) {
+  if (!browserBuild && isServer()) {
     throw new TanstackQueryAstroError(
       "browser-only",
       "pageClient() is browser-only. On the server use getQueryClient() inside a request.",
@@ -86,7 +94,7 @@ function hydrateElement(client: QueryClient, element: Element): void {
 
 /** The right client for where you are: the page client in the browser, the request client on the server. */
 export function getQueryClient(): QueryClient {
-  if (!isServer()) return pageClient();
+  if (!(!browserBuild && isServer())) return pageClient();
   const scope = requestScope();
   if (!scope) {
     throw new TanstackQueryAstroError(

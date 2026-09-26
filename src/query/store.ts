@@ -15,6 +15,10 @@ import {
   type Updater,
 } from "@tanstack/query-core";
 import type { ReadableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { getQueryClient } from "./client";
 import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore } from "./observer-store";
@@ -126,7 +130,7 @@ export function createQuery<
         // snapshot report that same state, as the official React, Vue, Svelte and Solid adapters
         // do. It changes only what is reported: this observer is never subscribed, so it still
         // never fetches (D5).
-        isServer() ? { ...options, _optimisticResults: "optimistic" } : options,
+        !browserBuild && isServer() ? { ...options, _optimisticResults: "optimistic" } : options,
       ),
   );
 
@@ -144,7 +148,7 @@ export function createQuery<
     });
   };
   store.refetch = (options) => {
-    if (isServer()) {
+    if (!browserBuild && isServer()) {
       throw new TanstackQueryAstroError(
         "browser-only",
         "refetch() is browser-only; on the server use prefetch().",

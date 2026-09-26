@@ -99,7 +99,7 @@ sit behind their own entry points.
 | D12 | **htmx ships as a separate entry** (`astro-tanstack-query/htmx`): read-through cache for `hx-get`, `setQueryData` on response, and invalidation surfaced as a DOM event (`tanstack-query:invalidated` on `document.body`) that elements opt into with `hx-trigger` — no DOM registry, no re-implemented swap.                                                                                                                                                                                                                                                                   | DECIDED |
 | D13 | **Devtools are the framework-agnostic `@tanstack/query-devtools`** (Solid inside, bundled; no framework peer), mounted by a dev-only `<QueryDevtools />` component that lazy-imports it. Optional peer.                                                                                                                                                                                                                                                                                                                                                                         | DECIDED |
 | D14 | **Every optional piece is its own entry point** with an enforced size budget (§7). Root export is the integration, matching `@astrojs/*` convention.                                                                                                                                                                                                                                                                                                                                                                                                                            | DECIDED |
-| D15 | **Isomorphic store module, runtime-checked** (`typeof window === 'undefined'`), not package `exports` conditions. The server branch is a few dozen bytes; export-condition resolution across Node/workerd/edge-light/browser is a known footgun and not worth those bytes.                                                                                                                                                                                                                                                                                                      | DECIDED |
+| D15 | **Isomorphic store module, runtime-checked** (`typeof window === 'undefined'`), not package `exports` conditions. Each check is written inline as `(!browserBuild && isServer())`: the virtual config sets `browserBuild` only in a client build, so Vite deletes the server branch there (measured at 200–365 B gzip per page), while SSR, prerender and tests keep the runtime check. Export-condition resolution across Node/workerd/edge-light/browser is a known footgun, and the flag recovers those bytes without it.                                                    | DECIDED |
 | D16 | **TanStack Router and typed URL state are out of scope.** A Router SPA island simply passes `getQueryClient()` into its router context; a recipe, not a feature.                                                                                                                                                                                                                                                                                                                                                                                                                | DECIDED |
 | D17 | Astro peer `^7.3.0`; `@tanstack/query-core ^5.90.0`; `nanostores ^1.0.0`. Widen supported Astro versions only after their consumer fixtures pass. Current ranges are declared in the package’s `package.json`.                                                                                                                                                                                                                                                                                                                                                                  | DECIDED |
 
@@ -468,18 +468,25 @@ reads:
   (`stringify`), because a property cannot be tree-shaken off a live object:
   while both lived on one `devalueSerializer`, a browser that only ever calls
   `parse` while hydrating still downloaded `stringify`, which runs solely on
-  the server in `stateScript()`. Measured gzip: the browser's `reader` **2.14
-  kB**, against 3.83 kB for the old single object and a 2.16 kB floor for
-  `devalue`'s `parse` alone — so the split recovers **1.69 kB** and lands
-  within ~30 B of the floor. The server-only `writer` is 2.93 kB and never
-  reaches a browser. `__tests__/support/treeshake.test.ts` bundles a devalue-configured
+  the server in `stateScript()`. Measured gzip with devalue 5.9: the browser's
+  `reader` **1.69 kB**, against 3.96 kB for the old single object and a 1.67
+  kB floor for `devalue`'s `parse` alone — so the split recovers **2.27 kB**
+  and lands within ~25 B of the floor. The server-only `writer` is 2.78 kB and
+  never reaches a browser. `__tests__/support/treeshake.test.ts` bundles a devalue-configured
   browser entry and fails if the halves are re-fused.
-- `/actions` measures **1.8 kB** because the budget externalises the
+- `/actions` measures **1.9 kB** because the budget externalises the
   third-party peers but not this package's own `/query` entry, so the row
   re-bundles the `createQuery`/`createMutation` bridge the wrappers import. The
   marginal cost of adding `/actions` to a page that already loads `/query` —
   the only page that would import it — is ~0.2 kB, measured by diffing a
   bundle of both against `/query` alone.
+
+The budgets are an upper bound. `size-limit` bundles with esbuild, which
+minifies less tightly than Vite 8's Rolldown and keeps the server branches
+that Vite deletes (D15): `createQuery` measures 11.3 kB there against 10.7 kB
+from Vite's own `build()`, and all stores 12.3 kB against 11.6 kB.
+`__tests__/support/treeshake.test.ts` runs that Vite build and holds it to the
+same budgets.
 
 Exact byte counts live beside each row in `.size-limit.js`, where a regression
 changes them.
@@ -492,11 +499,21 @@ Rules that make the table true:
 - No barrel re-exports across entries; each entry imports only what it
   needs from `query-core` (itself `sideEffects: false`, _verified_).
 - No `import.meta.env` or `process.env` in shipped code except behind
-  `typeof window` checks; no `node:` imports in the isomorphic module — the
+  the server checks; no `node:` imports in the isomorphic module — the
   middleware publishes the scope on `globalThis` (D15).
+- Every server check reads `typeof window` through `isServer()`, but only as
+  the inline `(!browserBuild && isServer())`. `browserBuild` is the virtual
+  config's constant, true only in a client build, so there the check folds to
+  false and the branch behind it, `requestScope()` included, leaves the
+  bundle. A helper function around it would defeat the fold, because neither
+  esbuild nor Rolldown inlines one. In a multi-entry build `isServer`,
+  `requestScope` and the scope key can survive as dead exports of a shared
+  chunk, about 40 B gzip in a two-page Vite build: Rolldown fixes a chunk's
+  exports before constant inlining removes their last uses.
 - Budgets are enforced in CI with `size-limit`, and a tree-shaking test
   bundles each entry with esbuild and asserts that marker strings from the
-  other entries are absent.
+  other entries are absent. The same test builds `createQuery` and all stores
+  with Vite and asserts that no server-only marker survives the fold.
 - `publint` and `@arethetypeswrong/cli` run in repository CI. The package `release`
   script builds and invokes Changesets publishing; it does not rerun those checks.
   Release only from a revision whose required CI checks have passed.

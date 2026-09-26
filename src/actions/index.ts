@@ -1,5 +1,9 @@
 import type { DataTag, DefaultError } from "@tanstack/query-core";
 import { getActionPath, type ActionClient } from "astro:actions";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { TanstackQueryAstroError } from "../query/errors";
 import { createMutation, type MutationStore, type MutationStoreOptions } from "../query/mutation";
 import { queryOptions } from "../query/options";
@@ -58,7 +62,7 @@ export function actionQueryOptions<A extends AnyAction, TData = ActionOutput<A>>
     ...options,
     queryKey: ["action", getActionPath(action), input],
     queryFn: async (): Promise<ActionOutput<A>> => {
-      if (!isServer()) return typed.orThrow(input);
+      if (!(!browserBuild && isServer())) return typed.orThrow(input);
       const scope = requestScope();
       if (!scope?.callAction) {
         throw new TanstackQueryAstroError(

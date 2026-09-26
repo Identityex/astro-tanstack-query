@@ -2,7 +2,7 @@ import { useStore } from "@nanostores/react";
 import { actions } from "astro:actions";
 import { actionMutation, actionQuery } from "astro-tanstack-query/actions";
 
-const $todos = actionQuery(actions.listTodos, undefined);
+const $todos = actionQuery(actions.listTodos);
 const $add = actionMutation(actions.addTodo, { onSuccess: () => $todos.invalidate() });
 
 export default function TodoList() {

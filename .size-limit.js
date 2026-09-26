@@ -6,11 +6,25 @@ import { fileURLToPath } from "node:url";
 // section 7 are the browser number, so the first two rows RESET `external` rather than appending
 // to it — the only thing that stays external is the `astro:actions` virtual module, which Astro
 // supplies at build time and has no size of its own.
+//
+// The rows are an esbuild upper bound on what Vite ships. `define` supplies the two constants
+// Vite's client build replaces, so observer-store's dev-only warning, which Vite strips, is not
+// counted. What esbuild cannot do is fold the `browserBuild` flag: it keeps every server branch
+// behind it, and pays a few bytes for the flag besides, where Vite's build deletes them. The Vite
+// build test in __tests__/support/treeshake.test.ts measures that pipeline: about 600 B lower than
+// this file on createQuery and 700 B lower on all stores.
+//
+// A figure below marked "size-limit" is gzip bytes as `npm run size` reports them: esbuild with
+// this file's settings, gzip level 9, less size-limit's empty-project allowance (46 B for a row
+// with `import`, 32 B without). One for a bundle that is not a row was measured the same way.
 const alias = {
   "virtual:astro-tanstack-query/config": fileURLToPath(
     new URL("./__tests__/support/virtual-config.ts", import.meta.url),
   ),
 };
+
+/** What Vite's client build replaces, so both are measured as a browser receives them. */
+const define = { "import.meta.env.DEV": "false", "import.meta.env.SSR": "false" };
 
 /** What a browser downloads: peers bundled in. */
 const delivered = (config) => ({
@@ -19,6 +33,7 @@ const delivered = (config) => ({
   format: "esm",
   alias: { ...(config.alias ?? {}), ...alias },
   external: ["astro:actions"],
+  define: { ...(config.define ?? {}), ...define },
 });
 
 /** Incremental cost of an optional entry on a page that already loads the query runtime. */
@@ -27,10 +42,12 @@ const onTopOfQuery = (config) => ({
   format: "esm",
   alias: { ...(config.alias ?? {}), ...alias },
   external: ["astro:actions", "@tanstack/query-core", "nanostores"],
+  define: { ...(config.define ?? {}), ...define },
 });
 
 export default [
   {
+    // 11,309 B (size-limit).
     name: "query: createQuery (delivered)",
     path: "dist/query/index.js",
     import: "{ createQuery }",
@@ -39,9 +56,12 @@ export default [
     modifyEsbuildConfig: delivered,
   },
   {
+    // 12,260 B (size-limit). The activity stores add 83 B of it: 12,177 B without
+    // createIsFetching/createIsMutating (same pipeline).
     name: "query: all stores (delivered)",
     path: "dist/query/index.js",
-    import: "{ createQuery, createInfiniteQuery, createMutation }",
+    import:
+      "{ createQuery, createInfiniteQuery, createMutation, createIsFetching, createIsMutating }",
     limit: "13.5 kB",
     gzip: true,
     modifyEsbuildConfig: delivered,
@@ -49,7 +69,9 @@ export default [
   {
     // 1.6 not 1.5: making fragment caching opt-in (an un-annotated hx-get must always revalidate,
     // rather than inheriting the query client's 60 s default) cost 22 B of resolution logic and
-    // the comment explaining it. Measured 1.52 kB.
+    // the comment explaining it. Measured 1,597 B (size-limit), 9 B of which is the `browserBuild`
+    // flag esbuild cannot fold. Vite's build of this entry folds it: 1,532 B, down from 1,600 B
+    // before the flag (Vite 8 `build()`, minified, the same peers external, gzip level 9).
     name: "htmx on top of query",
     path: "dist/htmx/index.js",
     limit: "1.6 kB",
@@ -58,9 +80,11 @@ export default [
   },
   {
     // `onTopOfQuery` externalises the third-party peers but not this package's own /query entry, so
-    // this row re-bundles the createQuery/createMutation bridge the wrappers import — hence 1,847 B
-    // rather than the wrappers' own weight. The marginal cost of adding /actions to a page that
-    // already loads /query is 172 B (measured by diffing a bundle of both against /query alone).
+    // this row re-bundles the createQuery/createMutation bridge the wrappers import — hence 1,935 B
+    // (size-limit) rather than the wrappers' own weight. The marginal cost of adding /actions to a
+    // page that already loads /query is 175 B (a createQuery + createMutation bundle with and
+    // without /actions, same pipeline). The row read 2,049 B, over this limit, until `define` above
+    // kept the re-bundled bridge's dev-only warning out of it.
     name: "actions on top of query",
     path: "dist/actions/index.js",
     limit: "2 kB",
@@ -72,10 +96,11 @@ export default [
     // `reader` and `writer` as two objects precisely so this row can name one: a property cannot
     // be shaken off a live object, so while both halves sat on a single `devalueSerializer`
     // literal every page opting into serializer: "devalue" also shipped `stringify`, which runs
-    // solely on the server in stateScript(). Measured (esbuild, minified, gzip, production):
-    // devalue `parse` alone 2,161 B, `parse` + `stringify` 3,754 B; the whole module — what this
-    // row measured before the split, and what it would measure again if the `import` field were
-    // ever dropped — 3,830 B; this row 2,137 B. Affects only serializer: "devalue".
+    // solely on the server in stateScript(). Measured with devalue 5.9.4 (size-limit, and the same
+    // pipeline for the bundles that are not rows): devalue `parse` alone 1,670 B, `parse` +
+    // `stringify` 3,832 B; the whole module — what this row measured before the split, and what it
+    // would measure again if the `import` field were ever dropped — 3,964 B; this row 1,694 B.
+    // Affects only serializer: "devalue".
     name: "devalue reader (browser) on top of query",
     path: "dist/serializer/devalue.js",
     import: "{ reader }",
@@ -84,9 +109,10 @@ export default [
     modifyEsbuildConfig: onTopOfQuery,
   },
   {
-    // The server half, which no browser downloads. Measured 2,932 B. It earns a row of its own so
-    // the pair reads as "reader + writer ~= the whole module": fuse the two objects back together
-    // and the reader row jumps by roughly this much, which is exactly the regression to catch.
+    // The server half, which no browser downloads. Measured 2,776 B (size-limit). It earns a row of
+    // its own so the pair reads as "reader + writer ~= the whole module": fuse the two objects back
+    // together and the reader row jumps by roughly this much, which is exactly the regression to
+    // catch.
     name: "devalue writer (server only)",
     path: "dist/serializer/devalue.js",
     import: "{ writer }",

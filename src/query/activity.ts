@@ -1,5 +1,9 @@
 import { notifyManager, type MutationFilters, type QueryFilters } from "@tanstack/query-core";
 import { atom, onMount, type ReadableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { pageClient } from "./client";
 import { isServer } from "./scope-reader";
 
@@ -18,7 +22,7 @@ function activity(
   // matters as much as the value: a server read would otherwise mount the atom and call
   // pageClient(), which throws there, and counting the request client instead would tie a
   // module-level atom to one request (D4).
-  if (isServer()) return $count;
+  if (!browserBuild && isServer()) return $count;
   onMount($count, () => {
     const update = () => $count.set(count());
     update();

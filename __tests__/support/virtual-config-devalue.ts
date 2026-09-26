@@ -8,5 +8,6 @@ import { reader, writer } from "../../src/serializer/devalue";
 export const defaultOptions: DefaultOptions = {};
 export const stateReader = reader;
 export const stateWriter = writer;
-// Typed by the module's declaration, as in ./virtual-config.ts.
+// Typed by the module's declaration, and the flag false, as in ./virtual-config.ts.
 export const settings: typeof generated = { emit: "middleware", ssrStaleTime: 60_000 };
+export const browserBuild = false;

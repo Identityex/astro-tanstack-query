@@ -7,6 +7,10 @@ import {
   type OmitKeyof,
 } from "@tanstack/query-core";
 import type { ReadableAtom } from "nanostores";
+// Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
+// them to false and drops the branches behind them. Keep them inline; a helper function defeats
+// the fold: neither esbuild nor Rolldown inlines it.
+import { browserBuild } from "virtual:astro-tanstack-query/config";
 import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore, type ObserverLike } from "./observer-store";
 import { isServer } from "./scope-reader";
@@ -76,7 +80,7 @@ export function createMutation<
       `${name}() is browser-only; mutations never run during SSR.`,
     );
   const observer = (method: "mutate" | "mutateAsync" | "reset"): Native => {
-    if (isServer()) throw browserOnly(method);
+    if (!browserBuild && isServer()) throw browserOnly(method);
     return (parts.observer() as MutationObserverLike).native;
   };
 

@@ -43,7 +43,12 @@ export interface TestQueryConfigOptions extends Omit<TanstackQueryOptions, "devt
 export function installTestQueryConfig(options: TestQueryConfigOptions = {}): Plugin {
   const { root, ...integration } = options;
   return {
-    ...virtualConfigPlugin(resolveOptions({ ...integration, devtools: false }), rootUrl(root)),
+    // `browserBuild: false` keeps every store deciding by `window` at run time, as it did before
+    // the flag existed: a DOM-environment test file is loaded as client code, and a test in it may
+    // still remove `window` to exercise the server path.
+    ...virtualConfigPlugin(resolveOptions({ ...integration, devtools: false }), rootUrl(root), {
+      browserBuild: false,
+    }),
     name: `${PACKAGE_NAME}:test-config`,
     config: () => ({
       // Anything Vitest treats as external is handed to Node's own loader, which has never heard
