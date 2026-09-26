@@ -6,16 +6,19 @@
  * the components after an async sibling concurrently with this one, so a
  * prefetch in their frontmatter may finish after it has run; the default
  * middleware emission, which writes the state once the body has streamed,
- * captures those too.
+ * captures those too. A `server:defer` component renders in a request of its
+ * own: put one last inside that component too.
  */
-import { stateScript, warnOnLatePrefetch } from "astro-tanstack-query/server";
+import { SERVER_ISLAND_ROUTE, stateScript, warnOnLatePrefetch } from "astro-tanstack-query/server";
 import { stateWriter } from "virtual:astro-tanstack-query/config";
 
 const client = Astro.locals.queryClient;
 // As the middleware does: `astro build` has DEV false, and prerendering is where a prefetch
-// through absoluteUrl() fails.
+// through absoluteUrl() fails. Inside a server:defer component it writes the id-less element the
+// page client drains, so it never shadows the page's own.
 const html = stateScript(client, stateWriter, {
   warn: import.meta.env.DEV || Astro.isPrerendered,
+  island: Astro.routePattern === SERVER_ISLAND_ROUTE,
 });
 // Not cleared here: siblings rendering concurrently may still read the client. The middleware
 // releases it once the response has streamed.

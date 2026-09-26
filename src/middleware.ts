@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/query-core";
 import { defineMiddleware } from "astro/middleware";
 import { defaultOptions, settings, stateWriter } from "virtual:astro-tanstack-query/config";
 import { TanstackQueryAstroError } from "./query/errors";
-import { injectState } from "./server/emit";
+import { injectState, SERVER_ISLAND_ROUTE } from "./server/emit";
 import { currentScope, runInScope } from "./server/scope";
 
 /**
@@ -64,8 +64,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // has ended. In component mode it only releases; <QueryState /> has written the state itself.
   // Diagnostics also run while prerendering: `astro build` has DEV false, and it is where a
   // prefetch through absoluteUrl() fails. Passed in, because the scope is gone by flush.
+  // Keyed on the route rather than on "is a fragment": a server island's HTML lands in a page
+  // whose client drains its state, an htmx partial's does not.
   const warn = import.meta.env.DEV || context.isPrerendered;
+  const island = context.routePattern === SERVER_ISLAND_ROUTE;
   return injectState(response, queryClient, settings.emit === "middleware" ? stateWriter : null, {
     warn,
+    island,
   });
 });

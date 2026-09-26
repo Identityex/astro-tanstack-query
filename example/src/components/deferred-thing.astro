@@ -1,0 +1,22 @@
+---
+import QueryState from "astro-tanstack-query/components/QueryState.astro";
+import DeferredThing from "../islands/react/DeferredThing.tsx";
+import { $deferredThing } from "../queries/deferred-thing";
+
+interface Props {
+  componentEmission: boolean;
+}
+
+const { componentEmission } = Astro.props;
+
+// Late on purpose: beside a page island, the page client has almost always been created by the
+// time this HTML arrives, so its state reaches the cache through the client's observer rather than
+// at creation. The test holds either way.
+await new Promise((resolve) => setTimeout(resolve, 300));
+await $deferredThing.prefetch(async () => "prefetched-in-the-island");
+---
+
+<section data-server-island>
+  <DeferredThing client:load />
+  {componentEmission && <QueryState />}
+</section>

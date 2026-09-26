@@ -20,9 +20,11 @@ const DOCUMENT_END = /^<\/body>\s*(?:<\/html>\s*)?$/i;
 /**
  * What tells a document apart from a fragment. Astro prepends `<!DOCTYPE html>` to every page
  * render unless the route sets `partial`, and a partial is exactly the response that must not be
- * given a state element (verified: `runtime/server/render/astro/render.js`, DOCTYPE_EXP).
+ * given a state element (verified: `runtime/server/render/astro/render.js`, DOCTYPE_EXP). The tag
+ * names end at whitespace or `>`, so a fragment holding `<html-viewer>` or `<body-copy>` is still
+ * a fragment.
  */
-const DOCUMENT_PATTERN = /<!doctype|<html|<body/i;
+const DOCUMENT_PATTERN = /<!doctype|<html[\s>]|<body[\s>]/i;
 const CHARSET_PATTERN = /;\s*charset\s*=\s*"?([^";\s]+)/i;
 const UTF8_LABEL = /^utf-?8$/i;
 
@@ -33,6 +35,13 @@ const UTF8_LABEL = /^utf-?8$/i;
  */
 type ReleasingTransformer = Transformer<Uint8Array, Uint8Array> & { cancel(): void };
 
+/**
+ * The route Astro renders a `server:defer` component on (`SERVER_ISLAND_ROUTE` in
+ * `core/server-islands/endpoint.js`). It is `routePattern`, which a configured `base` never
+ * changes: `base` reaches only the route's regex.
+ */
+export const SERVER_ISLAND_ROUTE = "/_server-islands/[name]";
+
 export interface EmitOptions {
   /**
    * Warn, once per request, about prefetches the state cannot carry: one still in flight when it
@@ -41,6 +50,13 @@ export interface EmitOptions {
    * failed prefetch is otherwise invisible.
    */
   warn?: boolean;
+  /**
+   * This response renders a server island (`routePattern === SERVER_ISLAND_ROUTE`). Its HTML is a
+   * fragment the browser inserts into a page that has its own `#astro-tq`, so the state goes in an
+   * element with no id, found by its class instead: a second `#astro-tq` ahead of the page's own
+   * would shadow it. The page client hydrates each one as it arrives.
+   */
+  island?: boolean;
 }
 
 /**
@@ -58,15 +74,22 @@ export function stateScript(
   options: EmitOptions = {},
 ): string | null {
   if (options.warn) warnUnemitted(client);
-  const chosen =
-    client.getDefaultOptions().dehydrate?.shouldDehydrateQuery ?? defaultShouldDehydrateQuery;
-  const state = dehydrate(client, {
-    shouldDehydrateQuery: (query) => query.state.status !== "pending" && chosen(query),
-  });
+  const state = dehydrateForPage(client);
   if (state.queries.length === 0 && state.mutations.length === 0) return null;
   const text = serialize(state, writer);
   if (text === null) return null;
-  return `<script type="application/json" id="${STATE_ELEMENT_ID}" data-serializer="${writer.name}">${text}</script>`;
+  // The class shares the id's name: one string for the browser to look for either way.
+  const target = options.island ? `class="${STATE_ELEMENT_ID}"` : `id="${STATE_ELEMENT_ID}"`;
+  return `<script type="application/json" ${target} data-serializer="${writer.name}">${text}</script>`;
+}
+
+/** What stateScript() writes: the config's own choice, never a pending query. */
+function dehydrateForPage(client: QueryClient): DehydratedState {
+  const chosen =
+    client.getDefaultOptions().dehydrate?.shouldDehydrateQuery ?? defaultShouldDehydrateQuery;
+  return dehydrate(client, {
+    shouldDehydrateQuery: (query) => query.state.status !== "pending" && chosen(query),
+  });
 }
 
 /**
@@ -145,9 +168,10 @@ function warnUnemitted(client: QueryClient): void {
 
 /**
  * Streams the HTML through and, at flush, writes the state element before the document's final
- * `</body>` (or at the end of a document that has none; a fragment is left alone). Flush is the
- * only moment every prefetch is known to have finished: Astro renders siblings concurrently, and a
- * `</body>` earlier in the stream can be a string in a script.
+ * `</body>` (or at the end of a document that has none). A fragment is left alone, except a server
+ * island's (`options.island`), which gets the id-less element at its end. Flush is the only moment
+ * every prefetch is known to have finished: Astro renders siblings concurrently, and a `</body>`
+ * earlier in the stream can be a string in a script.
  *
  * Every response releases the request client exactly once: a page it streams through at flush, or
  * when the reader cancels; anything else at once. A `null` writer streams the page through
@@ -213,8 +237,10 @@ export function injectState(
       try {
         // A fragment (an htmx swap, say) is served as text/html but has no document to own the
         // state element. Appending one anyway puts a second #astro-tq in the DOM ahead of the
-        // page's own, so the next hydrateFromDocument reads the fragment's state.
-        if (sawDocument) script = stateScript(client, writer, options);
+        // page's own, so the next hydrateFromDocument reads the fragment's state. A server island
+        // is the one fragment that gets its state, in the id-less form the page client drains.
+        if (sawDocument || options.island) script = stateScript(client, writer, options);
+        else warnDroppedFromFragmentOnce(client);
       } finally {
         client.clear();
       }
@@ -294,6 +320,21 @@ function isUtf8Text(headers: Headers, contentType: string): boolean {
   if (encoding && encoding !== "identity") return false;
   const charset = CHARSET_PATTERN.exec(contentType)?.[1];
   return charset === undefined || UTF8_LABEL.test(charset);
+}
+
+let warnedFragment = false;
+/**
+ * Names query hashes only. Once per process: an htmx partial may prefetch only to render the data
+ * into its own HTML, and would otherwise repeat this on every swap.
+ */
+function warnDroppedFromFragmentOnce(client: QueryClient): void {
+  if (warnedFragment || !import.meta.env?.DEV) return;
+  const dropped = dehydrateForPage(client).queries.map((query) => query.queryHash);
+  if (dropped.length === 0) return;
+  warnedFragment = true;
+  console.warn(
+    `[astro-tanstack-query] ${dropped.length} prefetched quer${dropped.length === 1 ? "y was" : "ies were"} dropped from an HTML fragment (a response without <!DOCTYPE html>, such as an htmx partial): ${dropped.join(", ")}. A fragment carries no query state, so an island inside it fetches again in the browser. Prefetch in the page that renders the island instead; a server island (server:defer) is the one fragment whose state reaches the page. Shown once.`,
+  );
 }
 
 let warnedUnwritable = false;

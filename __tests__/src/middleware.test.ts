@@ -17,15 +17,17 @@ interface Where {
   url?: string;
   /** Astro hands a rewrite, and an error page after a failed render, the same `locals` object. */
   locals?: object;
+  routePattern?: string;
 }
 
 function context(
   isPrerendered = false,
-  { url = "http://x/page", locals = {} }: Where = {},
+  { url = "http://x/page", locals = {}, routePattern = "/page" }: Where = {},
 ): APIContext {
   return {
     url: new URL(url),
     locals,
+    routePattern,
     isPrerendered,
     callAction: (() => Promise.resolve({ data: undefined })) as unknown as APIContext["callAction"],
   } as unknown as APIContext;
@@ -277,3 +279,30 @@ it("with ssr.origin, resolves absoluteUrl() against it rather than a forged Host
   );
   expect(seen).toEqual(["https://app.example/api/x", "https://app.example/page?x=1"]);
 });
+
+it.each<[Emit, string, number]>([
+  ["middleware", "/_server-islands/[name]", 1],
+  ["middleware", "/partials/cart", 0],
+  // <QueryState /> inside the deferred component writes it instead.
+  ["component", "/_server-islands/[name]", 0],
+])(
+  "in %s mode, a fragment on %s carries %i id-less state element(s)",
+  async (emit, routePattern, elements) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ctx = context(false, { url: "http://x/_server-islands/Cart", routePattern });
+    const response = await withEmit(emit, () =>
+      respond(ctx, async () => {
+        await ctx.locals.queryClient.prefetchQuery({ queryKey: ["cart"], queryFn: async () => 3 });
+        return html('<astro-island uid="1">3 items</astro-island>');
+      }),
+    );
+
+    const text = await response.text();
+
+    expect(text.match(/<script type="application\/json" class="astro-tq"/g) ?? []).toHaveLength(
+      elements,
+    );
+    expect(text).not.toContain('id="astro-tq"');
+    expect(ctx.locals.queryClient.getQueryCache().getAll()).toHaveLength(0);
+  },
+);

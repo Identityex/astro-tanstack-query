@@ -152,10 +152,75 @@ it("appends at flush when a document never closes its body", async () => {
 });
 
 it("leaves an html fragment alone, and still clears the client", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   const client = await prefetched();
   const response = injectState(htmlResponse(["<p>fragment</p>"]), client, writer);
   expect(await response.text()).toBe("<p>fragment</p>");
   expect(client.getQueryCache().getAll()).toHaveLength(0);
+});
+
+it("does not take a custom element named like html or body for a document", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const fragment = '<html-viewer src="/a"></html-viewer><body-copy>b</body-copy>';
+  const response = injectState(htmlResponse([fragment]), await prefetched(), writer);
+  expect(await response.text()).toBe(fragment);
+});
+
+const ISLAND_STATE =
+  /^<script type="application\/json" class="astro-tq" data-serializer="json">.*<\/script>$/s;
+
+it("writes a server island's state at the end of its fragment, with a class and no id", async () => {
+  const client = await retaining();
+  const clear = vi.spyOn(client, "clear");
+  const fragment = '<astro-island uid="1"><div>kept</div></astro-island>';
+
+  const output = await injectState(htmlResponse([fragment]), client, writer, {
+    island: true,
+  }).text();
+
+  expect(output.startsWith(fragment)).toBe(true);
+  const state = output.slice(fragment.length);
+  // A second #astro-tq ahead of the page's own would be the one getElementById returns.
+  expect(state).toMatch(ISLAND_STATE);
+  expect(state).not.toContain("id=");
+  expect(state).toContain("kept");
+  expect(clear).toHaveBeenCalledTimes(1);
+});
+
+it("leaves a server island's fragment alone when there is nothing to carry", async () => {
+  const fragment = "<p>nothing prefetched</p>";
+  const response = injectState(htmlResponse([fragment]), new QueryClient(), writer, {
+    island: true,
+  });
+  expect(await response.text()).toBe(fragment);
+});
+
+it("stateScript writes the id-less form for a server island", async () => {
+  expect(stateScript(await prefetched(), writer, { island: true })).toMatch(ISLAND_STATE);
+});
+
+it("warns once, in development, that a fragment dropped prefetched queries", async () => {
+  vi.resetModules();
+  const fresh = await import("../../../src/server/emit");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const fragment = () => htmlResponse(["<p>fragment</p>"]);
+
+  // A server store read adds an idle query, which was never prefetched; nothing is lost.
+  const readOnly = new QueryClient();
+  new QueryObserver(readOnly, { queryKey: ["read"], queryFn: async () => 1 }).getCurrentResult();
+  await fresh.injectState(fragment(), readOnly, writer).text();
+  // A server island carries its state.
+  await fresh.injectState(fragment(), await prefetched(), writer, { island: true }).text();
+  expect(warn).not.toHaveBeenCalled();
+
+  await fresh.injectState(fragment(), await prefetched(), writer).text();
+  await fresh.injectState(fragment(), await prefetched(), writer).text();
+
+  expect(warn).toHaveBeenCalledTimes(1);
+  const message = String(warn.mock.calls[0]?.[0]);
+  expect(message).toContain("1 prefetched query was dropped from an HTML fragment");
+  expect(message).toContain('["thing"]');
+  expect(message).not.toContain("<b>hi</b>");
 });
 
 it("drops a content-length the body has outgrown", async () => {

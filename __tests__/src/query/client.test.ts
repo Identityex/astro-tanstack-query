@@ -24,6 +24,16 @@ function stateElement(
   return el;
 }
 
+/** What a server island's HTML carries: the state with a class instead of the page's id. Not yet inserted. */
+function islandState(client: QueryClient, serializerName = "json"): HTMLScriptElement {
+  const el = document.createElement("script");
+  el.type = "application/json";
+  el.className = STATE_ELEMENT_ID;
+  el.dataset["serializer"] = serializerName;
+  el.textContent = writer.stringify(dehydrate(client));
+  return el;
+}
+
 async function clientWith(key: unknown[], data: unknown, updatedAt: number): Promise<QueryClient> {
   const source = new QueryClient();
   await source.prefetchQuery({ queryKey: key, queryFn: () => data });
@@ -33,7 +43,8 @@ async function clientWith(key: unknown[], data: unknown, updatedAt: number): Pro
 
 afterEach(() => {
   resetPageClientForTests();
-  document.getElementById(STATE_ELEMENT_ID)?.remove();
+  for (const el of document.querySelectorAll("script[data-serializer]")) el.remove();
+  document.body.replaceChildren();
   vi.restoreAllMocks();
 });
 
@@ -98,4 +109,45 @@ it("returns false when a document carries no state", () => {
   expect(hydrateFromDocument(pageClient(), document.implementation.createHTMLDocument())).toBe(
     false,
   );
+});
+
+it("hydrates a server island's state that arrived before the page client, and drops its class", async () => {
+  stateElement(document, await clientWith(["page"], "from the page", 10));
+  const island = islandState(await clientWith(["cart"], "from the island", 20));
+  document.body.appendChild(island);
+
+  const client = pageClient();
+
+  expect(client.getQueryData(["page"])).toBe("from the page");
+  expect(client.getQueryData(["cart"])).toBe("from the island");
+  expect(island.classList.contains(STATE_ELEMENT_ID)).toBe(false);
+});
+
+it("hydrates a server island's state inserted later, before an island inside it can read", async () => {
+  const client = pageClient();
+  const fragment = document.createElement("div");
+  fragment.append(islandState(await clientWith(["cart"], "from the island", 20)));
+
+  // As Astro's replacer does: the island's HTML goes in with one call, and an island inside it
+  // reads only after the awaited import that precedes its hydration.
+  document.body.append(fragment);
+  await Promise.resolve();
+
+  expect(client.getQueryData(["cart"])).toBe("from the island");
+  expect(document.getElementsByClassName(STATE_ELEMENT_ID)).toHaveLength(0);
+});
+
+it("keeps newer data when a server island's state is older", async () => {
+  stateElement(document, await clientWith(["thing"], "newer", 20));
+  const client = pageClient();
+
+  document.body.append(islandState(await clientWith(["thing"], "older", 10)));
+  await Promise.resolve();
+
+  expect(client.getQueryData(["thing"])).toBe("newer");
+});
+
+it("refuses a server island's state written by a different serializer", async () => {
+  document.body.append(islandState(await clientWith(["cart"], 1, 10), "devalue"));
+  expect(() => pageClient()).toThrowError(/serialized with "devalue"/);
 });
