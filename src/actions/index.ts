@@ -87,7 +87,7 @@ export function actionQuery<A extends AnyAction, TData = ActionOutput<A>>(
 
 /**
  * An Astro Action as a typed mutation. `error` is the Action's `ActionError<TInput>` or a transport
- * error; `error && isInputError(error)` narrows to the typed `fields`.
+ * error; `isActionError(error) && isInputError(error)` narrows to the typed `fields`.
  */
 export function actionMutation<A extends AnyAction, TContext = unknown>(
   action: A,

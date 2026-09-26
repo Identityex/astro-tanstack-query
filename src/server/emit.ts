@@ -174,7 +174,7 @@ function warnUnemitted(client: QueryClient): void {
  * earlier in the stream can be a string in a script.
  *
  * Every response releases the request client exactly once: a page it streams through at flush, or
- * when the reader cancels; anything else at once. A `null` writer streams the page through
+ * when the reader cancels, as does any other response with a body; one with no body at once. A `null` writer streams the page through
  * untouched and releases without emitting: that is `emit: "component"`, where `<QueryState />`
  * writes the state into the page itself. `options` reach stateScript() at flush, once the request
  * scope they would otherwise be read from has gone.

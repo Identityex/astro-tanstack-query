@@ -37,9 +37,12 @@ it("types an action mutation's variables with the Action's input", () => {
   void $add.mutate({ txet: "milk" });
 });
 
-it("leaves an action query's error untyped by schema, since it may be any thrown error", () => {
+it("types an action query's error like a mutation's, so isActionError narrows it the same way", () => {
   const error = actionQuery(actions.addTodo, { text: "milk" }).get().error;
   expectTypeOf(error).toEqualTypeOf<ActionError<{ text: string }> | Error | null>();
+  if (isActionError(error) && isInputError(error)) {
+    expectTypeOf(error.fields).toEqualTypeOf<{ text?: string[] | undefined }>();
+  }
 });
 
 it("lets select change an action query's data type", () => {
