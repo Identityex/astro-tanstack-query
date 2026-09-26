@@ -75,17 +75,18 @@ export function createMutation<
       "browser-only",
       `${name}() is browser-only; mutations never run during SSR.`,
     );
-  const observer = (): Native => {
-    if (isServer()) throw browserOnly("mutate");
+  const observer = (method: "mutate" | "mutateAsync" | "reset"): Native => {
+    if (isServer()) throw browserOnly(method);
     return (parts.observer() as MutationObserverLike).native;
   };
 
   const store = parts.store as MutationStore<TData, TError, TVariables, TContext>;
-  const run: MutationStore<TData, TError, TVariables, TContext>["mutateAsync"] = (
-    variables,
-    mutateOptions,
-  ) => {
-    const native = observer();
+  const run = (
+    method: "mutate" | "mutateAsync",
+    variables: TVariables,
+    mutateOptions?: MutateOptions<TData, TError, TVariables, TContext>,
+  ): Promise<TData> => {
+    const native = observer(method);
     // MutationObserver fires per-call callbacks only while it has listeners — React Query's
     // "component still mounted" check. A store used only for its methods (a <script>, an htmx
     // handler, an island that renders a button) has none, so hold one for the call. A store has
@@ -94,9 +95,9 @@ export function createMutation<
     return native.mutate(variables, mutateOptions).finally(release);
   };
   store.mutate = (variables, mutateOptions) => {
-    run(variables, mutateOptions).catch(() => undefined);
+    run("mutate", variables, mutateOptions).catch(() => undefined);
   };
-  store.mutateAsync = run;
-  store.reset = () => observer().reset();
+  store.mutateAsync = (variables, mutateOptions) => run("mutateAsync", variables, mutateOptions);
+  store.reset = () => observer("reset").reset();
   return store;
 }
