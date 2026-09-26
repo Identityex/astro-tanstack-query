@@ -19,15 +19,12 @@ export default defineConfig({
   dts: true,
   clean: true,
   treeshake: true,
-  external: [
-    /^astro/,
-    /^virtual:/,
-    /^node:/,
-    "@tanstack/query-core",
-    "@tanstack/query-devtools",
-    "nanostores",
-    "devalue",
-    "htmx.org",
-    "vite",
-  ],
+  // tsdown never bundles dependencies or peerDependencies, so this names only
+  // what package.json cannot: the virtual config and `astro:*` modules the
+  // consumer's Astro build resolves, Node built-ins (which a neutral platform
+  // reports as unresolved) and the type-only `vite` devDependency, whose
+  // declarations the d.ts bundler cannot inline.
+  deps: {
+    neverBundle: [/^virtual:/, /^astro:/, /^node:/, "vite"],
+  },
 });

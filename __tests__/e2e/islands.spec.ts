@@ -31,6 +31,18 @@ async function expectEveryIslandToShow(page: Page, value: string): Promise<void>
   }
 }
 
+async function waitForHydration(page: Page): Promise<void> {
+  // Astro drops an island's ssr attribute once its framework has taken over the markup. A click
+  // that lands before then hits static HTML and is lost.
+  await expect(page.locator("astro-island")).not.toHaveCount(0);
+  await expect(page.locator("astro-island[ssr]")).toHaveCount(0);
+}
+
+// A mismatch never fails an assertion: every framework recovers and only reports it. React's
+// production build reports it as a numbered error (418, 419, 422–424) that names neither word, and
+// through window.reportError, which Playwright surfaces as a pageerror rather than a console message.
+const hydrationReport = /hydrat|mismatch|react\.dev\/errors\/(?:418|419|422|423|424)\b/i;
+
 test("five consumers across four frameworks share one cache", async ({ page }) => {
   const apiRequests: string[] = [];
   page.on("request", (request) => {
@@ -49,4 +61,55 @@ test("five consumers across four frameworks share one cache", async ({ page }) =
   expect(refetched).not.toBe(loaded);
   await expectEveryIslandToShow(page, refetched);
   expect(apiRequests).toHaveLength(2);
+});
+
+test("every framework hydrates what the server rendered", async ({ page }) => {
+  const reports: string[] = [];
+  page.on("console", (message) => reports.push(message.text()));
+  page.on("pageerror", (error) => reports.push(`${error.name}: ${error.message}`));
+
+  // The islands reading $thing are not prefetched. Hold its response until they have all hydrated:
+  // one that hydrates after the data arrives renders it against HTML that says "pending", whatever
+  // the bridge does, and this test is about the bridge's server read matching its first browser read.
+  let releaseThing = (): void => {};
+  const hydrated = new Promise<void>((resolve) => {
+    releaseThing = resolve;
+  });
+  await page.route("**/api/thing", async (route) => {
+    await hydrated;
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await waitForHydration(page);
+  releaseThing();
+  await expectEveryIslandToShow(page, await readValue(page.locator('[data-island="react"]')));
+  await expect(page.locator('[data-island="solid-pager"]')).toContainText(
+    "page 1: post 1a, post 1b",
+  );
+
+  expect(reports.filter((report) => hydrationReport.test(report))).toEqual([]);
+});
+
+test("a Solid island that changes keys leaves the previous key's cache entry alone", async ({
+  page,
+}) => {
+  const pager = page.locator('[data-island="solid-pager"]');
+  const firstPage = page.locator('[data-island="svelte-first-page"]');
+
+  await page.goto("/");
+  await waitForHydration(page);
+  await expect(pager).toContainText("page 1: post 1a, post 1b");
+
+  await pager.getByRole("button", { name: "next page" }).click();
+  await expect(pager).toContainText("page 2: post 2a, post 2b");
+
+  // Only now does the Svelte island render page 1, so it reads that cache entry after the pager has
+  // moved past it: @nanostores/solid's reconcile would have written page 2 into it by then.
+  await firstPage.getByRole("button", { name: "show page 1" }).click();
+  await expect(firstPage).toContainText("page 1: post 1a, post 1b");
+
+  // Returning is served from the same entry (staleTime: Infinity), with nothing refetched over it.
+  await pager.getByRole("button", { name: "previous page" }).click();
+  await expect(pager).toContainText("page 1: post 1a, post 1b");
 });
