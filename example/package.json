@@ -15,7 +15,6 @@
     "@astrojs/svelte": "^9.0.1",
     "@astrojs/vue": "^7.0.2",
     "@nanostores/react": "^2.0.1",
-    "@nanostores/solid": "^1.1.1",
     "@nanostores/vue": "^1.1.0",
     "@tanstack/query-core": "^5.102.8",
     "astro": "^7.3.2",
