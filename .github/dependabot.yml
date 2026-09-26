@@ -3,15 +3,22 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # typescript-eslint does not accept TypeScript 7 yet; revisit when its peer range does.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
+      # Majors arrive as their own pull requests so each can be reviewed for breaking changes.
       development:
         dependency-type: development
-  - package-ecosystem: github-actions
-    directory: /
-    schedule: { interval: monthly }
+        update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /example
     schedule: { interval: weekly }
     groups:
       example:
         patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }

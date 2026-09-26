@@ -78,16 +78,16 @@ each request its own client, and stores reach it only through that request.
 
 ## Compatibility
 
-| Dependency                 | Supported       | Notes                                                             |
-| -------------------------- | --------------- | ----------------------------------------------------------------- |
-| `astro`                    | `^7.3.0`        | Older majors are not tested                                       |
-| `@tanstack/query-core`     | `^5.90.0`       | Required peer                                                     |
-| `nanostores`               | `^1.0.0`        | Required peer                                                     |
-| Node.js                    | `>=22`          | Developed and tested on Node 24                                   |
-| `devalue`                  | `^5.0.0`        | Optional, for `serializer: "devalue"`                             |
-| `htmx.org`                 | `^2.0.0`        | Optional, for `astro-tanstack-query/htmx`                         |
-| `@tanstack/query-devtools` | `^5.90.0`       | Optional, for Devtools in development                             |
-| Adapter                    | `@astrojs/node` | End-to-end tested. Edge runtimes: see [Limitations](#limitations) |
+| Dependency                 | Supported            | Notes                                                             |
+| -------------------------- | -------------------- | ----------------------------------------------------------------- |
+| `astro`                    | `^7.3.0`             | Older majors are not tested                                       |
+| `@tanstack/query-core`     | `^5.90.0`            | Required peer                                                     |
+| `nanostores`               | `^1.0.0`             | Required peer                                                     |
+| Node.js                    | `>=22`               | Developed and tested on Node 24                                   |
+| `devalue`                  | `^5.0.0 \|\| ^6.0.0` | Optional, for `serializer: "devalue"`                             |
+| `htmx.org`                 | `^2.0.0`             | Optional, for `astro-tanstack-query/htmx`                         |
+| `@tanstack/query-devtools` | `^5.90.0`            | Optional, for Devtools in development                             |
+| Adapter                    | `@astrojs/node`      | End-to-end tested. Edge runtimes: see [Limitations](#limitations) |
 
 UI frameworks read stores through their nanostores binding: `@nanostores/react`,
 `@nanostores/preact`, `@nanostores/vue`, `@nanostores/solid`, `@nanostores/alpine` or
