@@ -8,7 +8,12 @@ export interface RequestScope {
   queryClient: QueryClient;
   url: URL;
   callAction?: APIContext["callAction"];
-  /** True while `astro build` prerenders the page, when `url` is the build origin rather than a visitor's request. */
+  /**
+   * Astro's `context.isPrerendered`: the route's `prerender` flag, true for a prerendered route in
+   * `astro dev` and `astro build` alike, which under `output: "static"` is every route. Only in the
+   * build is `url` the build's origin rather than a visitor's request; code that needs that case
+   * checks `isPrerendered && !import.meta.env.DEV`.
+   */
   isPrerendered?: boolean;
 }
 

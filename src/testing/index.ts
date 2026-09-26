@@ -88,7 +88,10 @@ export interface TestRequestInit {
    */
   queryClient?: QueryClient;
   callAction?: RequestScope["callAction"];
-  /** Whether the code under test sees a page being prerendered by `astro build`. */
+  /**
+   * The scope's `isPrerendered`, which the middleware copies from Astro's per-route `prerender`
+   * flag: true for a prerendered route in `astro dev` as well as in `astro build`.
+   */
   isPrerendered?: boolean;
 }
 

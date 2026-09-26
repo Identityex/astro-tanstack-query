@@ -9,3 +9,5 @@ Store methods now work the same way whether or not anything is subscribed to the
 - `store.options.queryKey` is now a `DataTag`, so `getQueryClient().getQueryData($store.options.queryKey)` and `cancelQueries` infer the cached type. This covers plain stores, `family` members and infinite stores.
 - `refetch(options?)` takes `RefetchOptions` and `invalidate(options?)` takes `InvalidateOptions`, and both forward them to query-core.
 - `createInfiniteQuery`'s `prefetch(serverQueryFn?)` accepts a server-only fetcher, as `createQuery`'s already did.
+
+**Breaking (types only):** a store's `refetch` or `invalidate` passed directly as a handler (`onClick={$x.refetch}`, `onSuccess: $x.invalidate`) no longer compiles, because the handler's argument would be read as `RefetchOptions`/`InvalidateOptions`. Wrap it: `onClick={() => $x.refetch()}`. The runtime is unchanged.

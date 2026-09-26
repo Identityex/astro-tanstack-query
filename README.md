@@ -282,9 +282,11 @@ choice.
 The server render reports the same loading state as the browser's first read: a query that will
 fetch on mount renders with `isLoading` and `isFetching` true and `fetchStatus: "fetching"`, so an
 `isLoading ? … : …` branch hydrates without a mismatch. The server still never starts that fetch.
-A prefetch that failed is not sent to the browser, so it also renders as pending, not as an error.
-One case still mismatches: an island that hydrates after something else on the page has already
-fetched its query (see [Limitations](#limitations)).
+A prefetch that failed is not sent to the browser, so a query that fetches on mount also renders as
+pending and loading, not as an error. Two cases still mismatch (see [Limitations](#limitations)):
+a failed prefetch of a query that does not fetch on mount (`enabled: false` or
+`retryOnMount: false`), which the server renders as an error and the browser as pending, and an
+island that hydrates after something else on the page has already fetched its query.
 
 Await a prefetch before any island that reads its key renders. A prefetch still in flight when
 the page finishes is not written into it: the browser fetches it again, and development warns. To
@@ -337,8 +339,10 @@ await $thing.prefetch(() => readThing());
   than `ssr.staleTime`.
 - While prerendering, a failed prefetch logs one warning naming its query hash, as it does in
   development. `astro build` runs with `DEV` false, so this is the only sign of it.
-- Server code that must behave differently in the build can check
-  `currentScope()?.isPrerendered`, from `astro-tanstack-query/server`.
+- `currentScope()?.isPrerendered`, from `astro-tanstack-query/server`, is Astro's per-route
+  `prerender` flag. It is true for a prerendered route in `astro dev` too, and for every route
+  under `output: "static"`. Server code that must behave differently only in the build checks
+  `currentScope()?.isPrerendered && !import.meta.env.DEV`.
 
 ### Derived values: use `derived`, not `computed`
 
@@ -460,7 +464,7 @@ Astro Actions give you a typed transport; this package supplies the cache:
 ```tsx
 import { useStore } from "@nanostores/react";
 import { actions } from "astro:actions";
-import { actionMutation, actionQuery } from "astro-tanstack-query/actions";
+import { actionMutation, actionQuery, isActionError } from "astro-tanstack-query/actions";
 
 const $todos = actionQuery(actions.listTodos);
 const $add = actionMutation(actions.addTodo, { onSuccess: () => $todos.invalidate() });
@@ -476,7 +480,7 @@ export default function TodoList() {
         ))}
       </ul>
       <button onClick={() => $add.mutate({ text: "milk" })}>Add milk</button>
-      {add.error && <p>{add.error.code}</p>}
+      {isActionError(add.error) && <p>{add.error.code}</p>}
     </>
   );
 }
@@ -486,15 +490,17 @@ export default function TodoList() {
 requires it.
 
 `actionMutation`'s `error` is the Action's own `ActionError<TInput>`, which
-`ActionErrorOf<typeof actions.addTodo>` names. After `error && isInputError(error)`,
-`error.fields` has the schema's keys, so a typo such as `fields.txet` does not compile. Keep the
-`error &&`: TanStack's no-error value is `null`, which sends `isInputError()` to its untyped
-overload.
+`ActionErrorOf<typeof actions.addTodo>` names, or a plain `Error` when the request itself fails
+(offline, a dropped connection): `.orThrow()` fetches, and a failed fetch never becomes an
+`ActionError`. After `isActionError(error) && isInputError(error)`, `error.fields` has the
+schema's keys, so a typo such as `fields.txet` does not compile. Import `isActionError` from
+`astro-tanstack-query/actions`: it keeps the Action's input type, where Astro's own, from
+`astro:actions`, narrows to an untyped `ActionError`, and `isInputError()` alone takes its untyped
+overload on the union.
 
 On the server, `actionQuery` calls the Action through the request's `callAction`, so prefetching
-an Action does not go over HTTP. Its errors are `ActionError | DefaultError`, because the fetch can
-fail with any error: `isActionError()` narrows them to `code` and `status`, but their `fields` are
-not typed by the schema. `select` can change the data type:
+an Action does not go over HTTP. Its `error` has the same type as `actionMutation`'s, and
+`isActionError()` narrows it the same way. `select` can change the data type:
 `actionQuery(actions.listTodos, undefined, { select: (todos) => todos.length })` is a store of a
 number.
 
@@ -730,20 +736,22 @@ it("prefetches the way frontmatter does", async () => {
 ```
 
 `runInTestRequest` takes the request `url` that `absoluteUrl()` resolves against (default
-`http://localhost:4321/`), an optional `queryClient`, and `isPrerendered` for code that behaves
-differently while `astro build` prerenders. It does not apply `ssr.origin`: pass the `url` you
+`http://localhost:4321/`), an optional `queryClient`, and `isPrerendered`, the value the
+middleware copies from Astro's per-route `prerender` flag (true for a prerendered route in
+development as well as in the build). It does not apply `ssr.origin`: pass the `url` you
 want `absoluteUrl()` to resolve against. The default client never retries, so a rejecting
 `queryFn` fails the test immediately.
 
 ## Migrating from 0.1
 
-0.2.0 has five breaking changes. The [changelog](CHANGELOG.md) lists everything else.
+0.2.0 has six breaking changes. The [changelog](CHANGELOG.md) lists everything else.
 
 - **The server render reports loading.** A store that was not prefetched rendered on the server
   as pending but idle (`isLoading: false`, `fetchStatus: "idle"`). It now renders as the
   browser's first read does, with `isLoading: true`, `isFetching: true` and
-  `fetchStatus: "fetching"`, and a failed prefetch renders as pending and loading rather than as
-  an error. Islands that branch on these fields now show their loading branch in the server HTML.
+  `fetchStatus: "fetching"`, and a failed prefetch of a query that fetches on mount renders as
+  pending and loading rather than as an error. Islands that branch on these fields now show their
+  loading branch in the server HTML.
 - **`throwOnError` and `suspense` are gone from the option types.** Neither worked without a
   framework's error boundary or Suspense. `createQuery({ queryKey, queryFn, throwOnError: true })`
   no longer compiles: drop the option and read the result's `error` or `status`. Only options
@@ -755,14 +763,23 @@ want `absoluteUrl()` to resolve against. The default client never retries, so a 
   `onClick={$thing.refetch}` becomes `onClick={() => $thing.refetch()}`, and
   `onSuccess: $todos.invalidate` becomes `onSuccess: () => $todos.invalidate()`.
 - **The Action helpers take Astro's `ActionClient`.** They accept only an Astro Action, not any
-  object with an `orThrow` method, and `actionMutation`'s `error` narrows from `ActionError` to
-  the Action's own `ActionError<TInput>`. An Action that takes no input needs none:
-  `actionQuery(actions.listTodos, undefined)` becomes `actionQuery(actions.listTodos)`.
+  object with an `orThrow` method. `actionMutation`'s `error` changes from `ActionError` to the
+  Action's own `ActionError<TInput>` or a plain `Error`, which is what a request that fails before
+  the Action answers (offline, a dropped connection) rejects with. Reading `error.code` without
+  narrowing no longer compiles: guard with `isActionError(error)` first. An Action that takes no
+  input needs none: `actionQuery(actions.listTodos, undefined)` becomes
+  `actionQuery(actions.listTodos)`.
 - **`initialData` narrows `data`.** When `initialData` is always defined, `data` is typed as
   defined and the store is a `DefinedQueryStore`: `$todos.get().data?.length ?? 0` becomes
   `$todos.get().data.length`. The old form still compiles, but a strict linter reports the `?.`
   as unnecessary. `QueryStore` and `InfiniteQueryStore` gain a trailing result-type parameter
   with a default, so existing annotations are unchanged.
+- **A server with a global `window` is refused.** A DOM shim registered globally in the server
+  process, such as happy-dom's `GlobalRegistrator`, now fails every request with a
+  `TanstackQueryAstroError` of kind `"window-on-server"`. 0.1 served those pages, but every store
+  took its browser path there and shared one cache across requests, so one visitor's data leaked
+  to the next. Remove the shim from the server, or use a DOM instance that is not global
+  (happy-dom's `new Window()`) where your code needs one.
 
 ## API reference
 
@@ -770,7 +787,7 @@ want `absoluteUrl()` to resolve against. The default client never retries, so a 
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `astro-tanstack-query`              | The integration (default export) and `TanstackQueryOptions`                                                                                                                                                |
 | `astro-tanstack-query/query`        | `createQuery`, `createInfiniteQuery`, `createMutation`, `createIsFetching`, `createIsMutating`, `family`, `derived`, `queryOptions`, `absoluteUrl`, `getQueryClient`, `TanstackQueryAstroError`, and types |
-| `astro-tanstack-query/actions`      | `actionQuery`, `actionQueryOptions`, `actionMutation`, `ActionInput`, `ActionOutput`, `ActionErrorOf`                                                                                                      |
+| `astro-tanstack-query/actions`      | `actionQuery`, `actionQueryOptions`, `actionMutation`, `isActionError`, `ActionInput`, `ActionOutput`, `ActionErrorOf`                                                                                     |
 | `astro-tanstack-query/htmx`         | Registers the extension on import; `registerExtension`, `keyFor`, `EXTENSION_NAME`, `INVALIDATED_EVENT`                                                                                                    |
 | `astro-tanstack-query/server`       | `stateScript`, `injectState`, `warnOnLatePrefetch`, `currentScope`, `SERVER_ISLAND_ROUTE`, `EmitOptions`, `RequestScope`, for custom emission                                                              |
 | `astro-tanstack-query/testing`      | `installTestQueryConfig`, `resetTestQueryClient`, `runInTestRequest`                                                                                                                                       |
@@ -843,8 +860,8 @@ these budgets with [`size-limit`](.size-limit.js).
 | No store                                                                                          | **0 B**   |
 | `createQuery`                                                                                     | ≤ 12 kB   |
 | `createQuery`, `createInfiniteQuery`, `createMutation`, `createIsFetching` and `createIsMutating` | ≤ 13.5 kB |
-| `/actions`, on top of `/query`                                                                    | ≤ 2 kB    |
-| `/htmx`, on top of `/query`                                                                       | ≤ 1.6 kB  |
+| `/actions`, on top of `/query`                                                                    | ≤ 2.05 kB |
+| `/htmx`, on top of `/query`                                                                       | ≤ 1.65 kB |
 | `serializer: "devalue"`, on top of `/query`                                                       | ≤ 2.3 kB  |
 | Devtools, in a production build                                                                   | **0 B**   |
 
@@ -859,11 +876,18 @@ esbuild, so the budgets are an upper bound: Vite's own build of the same entries
   test replays a cross-request leak with `staleTime` set to prove it cannot happen.
 - **Dehydrated state cannot break out of its script element.** It is emitted as
   `<script type="application/json">` with `<`, `>`, `&`, U+2028 and U+2029 escaped.
-- **Only successful, prefetched queries are dehydrated.** A failed query's error never reaches
-  the HTML, and a pending query is never written, even under a custom `dehydrate` predicate. A
-  query the serializer cannot write is left out, and the log names it by hash only. The request
-  client is cleared once every response has ended, in both emit modes: a page when its stream ends
-  or the visitor disconnects, an endpoint or redirect as soon as it returns.
+- **By default, only successful, prefetched queries are dehydrated**, so a failed query's error
+  stays out of the page's state. A custom `dehydrate.shouldDehydrateQuery` in the `config`
+  module's `defaultOptions` decides that for itself, and overriding it gives up this guard. A
+  pending query is never written, even under a custom predicate. A query the serializer cannot
+  write is left out, and the log names it by hash only. The request client is cleared once every
+  response has ended, in both emit modes: a response with a body (a page, a JSON endpoint, a
+  stream) when its stream ends or its reader cancels, a response with no body, such as a redirect,
+  at once.
+- **Only a `<script>` element is read as state.** The browser finds the page's state with
+  `script#astro-tq`, and hydrates a server island's `.astro-tq` element only when it is a
+  `<script>`. HTML sanitizers keep `id`, `class` and `data-*` attributes but drop `<script>`, so
+  user content rendered into the page cannot write into the cache.
 - **The package reads no cookies or bodies, and never logs query data.** It does trust the
   request URL. On the server, `absoluteUrl()` resolves against Astro's request URL, and on
   `@astrojs/node` that URL's host comes from the client's `Host` header, unvalidated: Astro 7.3's
@@ -889,6 +913,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 | A `queryFn` with a relative URL fails during server prefetch.                                                                                                                                                                                                                                                                                        | Use `absoluteUrl()`, or pass a server-only fetcher to `prefetch()`. Development and prerendering warn when a server prefetch fails.                   |
 | On `@astrojs/node`, server-side `absoluteUrl()` resolves against the unvalidated `Host` header.                                                                                                                                                                                                                                                      | Put the server behind a proxy that rejects unknown hosts, set `ssr.origin`, or pass a server-only fetcher to `prefetch()`. See [Security](#security). |
 | An island that hydrates after an un-prefetched query has already resolved, because another island or a script fetched it, renders data against server HTML that said pending: a hydration mismatch inherent to a shared cache. The same holds for the first value of `createIsFetching` or `createIsMutating`, which the server always renders as 0. | Prefetch what the first paint renders, or use `client:only` for that island. Render an activity indicator hidden and reveal it from a `<script>`.     |
+| A failed prefetch of a query that does not fetch on mount (`enabled: false` or `retryOnMount: false`) renders `status: "error"` on the server. Errors are not sent to the browser, which starts from a pending query: a hydration mismatch.                                                                                                          | Use `client:only` for that island, or render its error and pending states with the same markup.                                                       |
 | nanostores keeps a store mounted for 1 s after its last subscriber leaves.                                                                                                                                                                                                                                                                           | By design, to avoid thrashing. Query cancellation is delayed by up to 1 s.                                                                            |
 | Store updates arrive one `setTimeout(0)` tick after the cache changes, as in React Query.                                                                                                                                                                                                                                                            | `await store.refetch()`, or read `getQueryClient().getQueryData($store.options.queryKey)` synchronously.                                              |
 | A slow streamed document tail delays query-backed interactivity until the state arrives.                                                                                                                                                                                                                                                             | Keep optional server prefetches bounded. Server-rendered island content stays visible meanwhile.                                                      |

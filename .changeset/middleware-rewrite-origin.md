@@ -25,3 +25,8 @@ resolve `absoluteUrl()` against a configured origin instead of the request's `Ho
   against it, keeping the request's path and query. It is fixed at build time and, like the other
   settings, readable in the browser bundle, so set the site's public origin. It must be an absolute
   `http:` or `https:` URL; only its origin is used.
+
+**Breaking:** a server process with a global `window`, such as a DOM shim registered globally
+(happy-dom's `GlobalRegistrator`), now fails every request with `window-on-server`. 0.1 served
+those pages, but shared one cache across requests and leaked one visitor's data to the next.
+Remove the shim from the server, or use a DOM instance that is not global where code needs one.

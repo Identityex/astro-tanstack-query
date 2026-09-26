@@ -24,6 +24,9 @@ says so.
   and `<QueryState />` turn this on; `stateScript()` and `injectState()` take it as an optional
   `{ warn }` argument, typed `EmitOptions`.
 - `RequestScope` has an optional `isPrerendered`, set by the middleware from Astro's context, and
-  `runInTestRequest()` accepts it.
+  `runInTestRequest()` accepts it. It is Astro's per-route `prerender` flag, true for a
+  prerendered route in `astro dev` as well as in `astro build`, and for every route under
+  `output: "static"`. Code that needs the build alone checks
+  `isPrerendered && !import.meta.env.DEV`.
 - In the browser, a page whose state fails to hydrate still throws on the first read, but no
   longer builds and mounts a new `QueryClient` on every read after it.
