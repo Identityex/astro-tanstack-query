@@ -1,13 +1,19 @@
 import type { APIContext } from "astro";
 import { settings } from "virtual:astro-tanstack-query/config";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { onRequest } from "../../src/middleware";
 import { requestScope } from "../../src/query/scope-reader";
 
-function context(): APIContext {
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
+
+function context(isPrerendered = false): APIContext {
   return {
     url: new URL("http://x/page"),
     locals: {},
+    isPrerendered,
     callAction: (() => Promise.resolve({ data: undefined })) as unknown as APIContext["callAction"],
   } as unknown as APIContext;
 }
@@ -97,3 +103,46 @@ it("in component mode, adds no state to a page and releases its client once the 
   expect(await response.text()).toBe(page);
   expect(ctx.locals.queryClient.getQueryCache().getAll()).toHaveLength(0);
 });
+
+it("tells the request scope whether the page is being prerendered", async () => {
+  const seen: (boolean | undefined)[] = [];
+  for (const prerendering of [true, false]) {
+    await respond(context(prerendering), async () => {
+      seen.push(requestScope()?.isPrerendered);
+      return html("");
+    });
+  }
+  expect(seen).toEqual([true, false]);
+});
+
+const failedPrefetch = (ctx: APIContext) =>
+  ctx.locals.queryClient.prefetchQuery({
+    queryKey: ["from-the-build-origin"],
+    queryFn: async (): Promise<never> => {
+      throw new Error("fetch failed");
+    },
+    retry: false,
+  });
+
+it.each([
+  [true, false, 1],
+  [false, true, 1],
+  [false, false, 0],
+])(
+  "with DEV %s and prerendering %s, warns %i time(s) about a failed prefetch",
+  async (dev, prerendering, warnings) => {
+    vi.stubEnv("DEV", dev);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ctx = context(prerendering);
+    const response = await respond(ctx, async () => {
+      await failedPrefetch(ctx);
+      return html("<!DOCTYPE html><html><body></body></html>");
+    });
+
+    const text = await response.text();
+
+    expect(text).not.toContain('id="astro-tq"');
+    expect(warn).toHaveBeenCalledTimes(warnings);
+    if (warnings > 0) expect(warn.mock.calls[0]?.[0]).toContain('["from-the-build-origin"]');
+  },
+);

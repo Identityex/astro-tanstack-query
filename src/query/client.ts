@@ -34,12 +34,15 @@ export function pageClient(): QueryClient {
     },
   });
   client.mount();
-  hydrateFromDocument(client, document);
+  // Recorded before hydrating: a blob that cannot hydrate throws out of this call (on purpose, for
+  // a serializer mismatch), and an unrecorded client would be built and mounted again by every
+  // store read after it.
+  page = client;
   // View Transitions: the module survives navigation, the document does not.
   document.addEventListener("astro:before-swap", (event) => {
     hydrateFromDocument(client, (event as Event & { newDocument: Document }).newDocument);
   });
-  page = client;
+  hydrateFromDocument(client, document);
   return client;
 }
 

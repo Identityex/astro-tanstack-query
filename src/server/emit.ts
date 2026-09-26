@@ -1,4 +1,9 @@
-import { dehydrate, type QueryClient } from "@tanstack/query-core";
+import {
+  defaultShouldDehydrateQuery,
+  dehydrate,
+  type DehydratedState,
+  type QueryClient,
+} from "@tanstack/query-core";
 import { STATE_ELEMENT_ID, type StateWriter } from "../serializer/types";
 
 const CLOSE_BODY = "</body>";
@@ -28,11 +33,114 @@ const UTF8_LABEL = /^utf-?8$/i;
  */
 type ReleasingTransformer = Transformer<Uint8Array, Uint8Array> & { cancel(): void };
 
-/** The state element for this request, or null when nothing was prefetched. Only successful queries are dehydrated; errors are redacted by query-core. */
-export function stateScript(client: QueryClient, writer: StateWriter): string | null {
-  const state = dehydrate(client);
+export interface EmitOptions {
+  /**
+   * Warn, once per request, about prefetches the state cannot carry: one still in flight when it
+   * is written, and one that failed. The middleware and `<QueryState />` turn it on in
+   * development and while prerendering: `astro build` runs with `DEV` false, and a static page's
+   * failed prefetch is otherwise invisible.
+   */
+  warn?: boolean;
+}
+
+/**
+ * The state element for this request, or null when there is nothing to write.
+ *
+ * The config's `dehydrate.shouldDehydrateQuery` still chooses what goes in, but a pending query
+ * never does: one blob written at the end of the body cannot resume a promise, and query-core
+ * attaches one to every pending query it dehydrates. TanStack's streaming recipe lets pending
+ * queries through; under JSON the promise arrives as `{}` and hydrate() throws in the browser,
+ * and under devalue stringify() throws here.
+ */
+export function stateScript(
+  client: QueryClient,
+  writer: StateWriter,
+  options: EmitOptions = {},
+): string | null {
+  if (options.warn) warnUnemitted(client);
+  const chosen =
+    client.getDefaultOptions().dehydrate?.shouldDehydrateQuery ?? defaultShouldDehydrateQuery;
+  const state = dehydrate(client, {
+    shouldDehydrateQuery: (query) => query.state.status !== "pending" && chosen(query),
+  });
   if (state.queries.length === 0 && state.mutations.length === 0) return null;
-  return `<script type="application/json" id="${STATE_ELEMENT_ID}" data-serializer="${writer.name}">${writer.stringify(state)}</script>`;
+  const text = serialize(state, writer);
+  if (text === null) return null;
+  return `<script type="application/json" id="${STATE_ELEMENT_ID}" data-serializer="${writer.name}">${text}</script>`;
+}
+
+/**
+ * `writer.stringify(state)`, or, when a value in it cannot be serialized, the state without the
+ * queries that hold one. A throw here would error the body stream after the status and most of
+ * the page have gone out; Astro's node adapter then writes "Internal server error" into that 200
+ * and logs nothing. A BigInt column under JSON, or an ORM instance under devalue, is enough.
+ * Leaving the query out costs one browser fetch instead. This path runs only once the whole state
+ * has failed.
+ */
+function serialize(state: DehydratedState, writer: StateWriter): string | null {
+  try {
+    return writer.stringify(state);
+  } catch (error) {
+    const fits = (partial: DehydratedState): boolean => {
+      try {
+        writer.stringify(partial);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const queries = state.queries.filter((query) => fits({ queries: [query], mutations: [] }));
+    const mutations = state.mutations.filter((mutation) =>
+      fits({ queries: [], mutations: [mutation] }),
+    );
+    const droppedMutations = state.mutations.length - mutations.length;
+    const dropped = [
+      ...state.queries.filter((query) => !queries.includes(query)).map((query) => query.queryHash),
+      ...(droppedMutations > 0 ? [`${droppedMutations} mutation(s)`] : []),
+    ];
+    // The message alone: a DevalueError also carries the value it choked on and the root it was
+    // serializing, which are query data, and the package never logs query data.
+    const reason = error instanceof Error ? error.message : "unknown error";
+    const remedy =
+      writer.name === "json"
+        ? 'Return plain data from the queryFn, or use serializer: "devalue" for Dates, Maps, Sets and BigInt.'
+        : "Return plain data from the queryFn.";
+    console.error(
+      `[astro-tanstack-query] the query state could not be serialized (${reason}), so the page ships without ${dropped.join(", ")} and the browser fetches it again. ${remedy}`,
+    );
+    if (queries.length === 0 && mutations.length === 0) return null;
+    try {
+      // Every survivor serialized on its own, so only a serializer that is not a pure function of
+      // its input can throw here; it still must not truncate the page.
+      return writer.stringify({ queries, mutations });
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Names query hashes only, never data or error bodies. */
+function warnUnemitted(client: QueryClient): void {
+  const cache = client.getQueryCache();
+  // A server store read adds its query without fetching it, so an idle pending query is no sign
+  // of a lost prefetch; a fetching one is.
+  const inFlight = cache.findAll({ fetchStatus: "fetching" }).map((query) => query.queryHash);
+  const failed = cache
+    .getAll()
+    .filter((query) => query.state.status === "error")
+    .map((query) => query.queryHash);
+  const problems: string[] = [];
+  if (inFlight.length > 0) {
+    problems.push(
+      `a prefetch was still in flight when the query state was written: ${inFlight.join(", ")}. Its result is not in the page, so the browser fetches it again. Await $store.prefetch() before rendering any island that reads it; to keep the head streaming, start it early and await it in a component that wraps the island. With emit: "component", <QueryState /> sees only prefetches awaited in page or layout frontmatter.`,
+    );
+  }
+  if (failed.length > 0) {
+    problems.push(
+      `server prefetch of ${failed.join(", ")} failed; a failed query is never written into the page, so the browser fetches it again. While prerendering, absoluteUrl() resolves against the build's origin (\`site\`, or localhost), not this build: pass a server fetcher, $store.prefetch(() => readFromSource()).`,
+    );
+  }
+  if (problems.length > 0) console.warn(`[astro-tanstack-query] ${problems.join("\n")}`);
 }
 
 /**
@@ -44,7 +152,8 @@ export function stateScript(client: QueryClient, writer: StateWriter): string | 
  * Every response releases the request client exactly once: a page it streams through at flush, or
  * when the reader cancels; anything else at once. A `null` writer streams the page through
  * untouched and releases without emitting: that is `emit: "component"`, where `<QueryState />`
- * writes the state into the page itself.
+ * writes the state into the page itself. `options` reach stateScript() at flush, once the request
+ * scope they would otherwise be read from has gone.
  * Releasing is what cancels the gc timers an explicit `gcTime` arms on the server; without it a
  * JSON endpoint or an aborted page pins its client, and everything in it, for that long.
  */
@@ -52,6 +161,7 @@ export function injectState(
   response: Response,
   client: QueryClient,
   writer: StateWriter | null,
+  options: EmitOptions = {},
 ): Response {
   const contentType = response.headers.get("content-type") ?? "";
   if (!response.body || !contentType.includes("text/html")) {
@@ -104,7 +214,7 @@ export function injectState(
         // A fragment (an htmx swap, say) is served as text/html but has no document to own the
         // state element. Appending one anyway puts a second #astro-tq in the DOM ahead of the
         // page's own, so the next hydrateFromDocument reads the fragment's state.
-        if (sawDocument) script = stateScript(client, writer);
+        if (sawDocument) script = stateScript(client, writer, options);
       } finally {
         client.clear();
       }

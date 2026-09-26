@@ -18,11 +18,21 @@ export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.queryClient = queryClient;
 
   const response = await runInScope(
-    { queryClient, url: context.url, callAction: context.callAction },
+    {
+      queryClient,
+      url: context.url,
+      callAction: context.callAction,
+      isPrerendered: context.isPrerendered,
+    },
     () => next(),
   );
 
   // Both modes go through injectState: it is what releases the request client once the response
   // has ended. In component mode it only releases; <QueryState /> has written the state itself.
-  return injectState(response, queryClient, settings.emit === "middleware" ? stateWriter : null);
+  // Diagnostics also run while prerendering: `astro build` has DEV false, and it is where a
+  // prefetch through absoluteUrl() fails. Passed in, because the scope is gone by flush.
+  const warn = import.meta.env.DEV || context.isPrerendered;
+  return injectState(response, queryClient, settings.emit === "middleware" ? stateWriter : null, {
+    warn,
+  });
 });

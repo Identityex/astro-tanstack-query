@@ -12,7 +12,11 @@ import { stateScript, warnOnLatePrefetch } from "astro-tanstack-query/server";
 import { stateWriter } from "virtual:astro-tanstack-query/config";
 
 const client = Astro.locals.queryClient;
-const html = stateScript(client, stateWriter);
+// As the middleware does: `astro build` has DEV false, and prerendering is where a prefetch
+// through absoluteUrl() fails.
+const html = stateScript(client, stateWriter, {
+  warn: import.meta.env.DEV || Astro.isPrerendered,
+});
 // Not cleared here: siblings rendering concurrently may still read the client. The middleware
 // releases it once the response has streamed.
 if (import.meta.env.DEV) warnOnLatePrefetch(client);

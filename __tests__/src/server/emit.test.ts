@@ -1,6 +1,7 @@
-import { QueryClient, QueryObserver } from "@tanstack/query-core";
+import { QueryClient, QueryObserver, defaultShouldDehydrateQuery } from "@tanstack/query-core";
 import { gzipSync } from "node:zlib";
 import { afterEach, expect, it, vi } from "vitest";
+import { writer as devalueWriter } from "../../../src/serializer/devalue";
 import { writer } from "../../../src/serializer/json";
 import { injectState, stateScript, warnOnLatePrefetch } from "../../../src/server/emit";
 
@@ -360,7 +361,8 @@ it("appends the state at flush when content follows the document's </body>", asy
   );
 });
 
-it("releases the client even when the state cannot be written", async () => {
+it("finishes the page and releases the client when no state can be written", async () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const client = await retaining();
   const clear = vi.spyOn(client, "clear");
   const failing = {
@@ -369,14 +371,140 @@ it("releases the client even when the state cannot be written", async () => {
       throw new Error("unserialisable");
     },
   };
-  await expect(
-    injectState(
-      htmlResponse(["<!DOCTYPE html><html><body></body></html>"]),
-      client,
-      failing,
-    ).text(),
-  ).rejects.toThrow("unserialisable");
+  const page = "<!DOCTYPE html><html><body></body></html>";
+  expect(await injectState(htmlResponse([page]), client, failing).text()).toBe(page);
   expect(clear).toHaveBeenCalledTimes(1);
+  expect(error).toHaveBeenCalledTimes(1);
+  expect(error.mock.calls[0]?.[0]).toContain("unserialisable");
+  expect(error.mock.calls[0]?.[0]).toContain('["kept"]');
+});
+
+class Money {
+  constructor(readonly cents: number) {}
+}
+
+it.each([
+  ["a BigInt under JSON", writer, () => ({ secret: "hunter2", id: 1n }), {}],
+  ["a class instance under devalue", devalueWriter, () => new Money(4200), {}],
+  ["a function in meta under devalue", devalueWriter, () => "hunter2", { format: () => "x" }],
+])(
+  "leaves out only the query holding %s, and still finishes the page",
+  async (_, stateWriter, data, meta) => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await prefetched();
+    await client.prefetchQuery({ queryKey: ["unserializable"], queryFn: async () => data(), meta });
+    const page = "<!DOCTYPE html><html><body><p>x</p></body></html>";
+
+    const output = await injectState(htmlResponse([page]), client, stateWriter).text();
+
+    expectStateBeforeFinalBody(output, page);
+    const state = STATE_ELEMENT.exec(output)?.[0] ?? "";
+    expect(state).toContain("thing");
+    expect(state).not.toContain("unserializable");
+    expect(error).toHaveBeenCalledTimes(1);
+    const message = String(error.mock.calls[0]?.[0]);
+    expect(message).toContain('["unserializable"]');
+    expect(message).not.toContain('["thing"]');
+    // Switching to devalue is the remedy only for a page that is not already using it.
+    expect(message.includes('serializer: "devalue"')).toBe(stateWriter === writer);
+    // Query data never reaches a log, not even through the serializer's own error.
+    expect(message).not.toContain("hunter2");
+    expect(message).not.toContain("4200");
+    expect(client.getQueryCache().getAll()).toHaveLength(0);
+  },
+);
+
+it("keeps the config's own predicate but never emits a pending query", async () => {
+  const client = new QueryClient({
+    defaultOptions: {
+      dehydrate: {
+        // TanStack's streaming recipe, plus a key the page chose to keep out.
+        shouldDehydrateQuery: (query) =>
+          query.queryKey[0] !== "private" &&
+          (defaultShouldDehydrateQuery(query) || query.state.status === "pending"),
+      },
+    },
+  });
+  await client.prefetchQuery({ queryKey: ["thing"], queryFn: async () => "done" });
+  await client.prefetchQuery({ queryKey: ["private"], queryFn: async () => "mine" });
+  void client.prefetchQuery({ queryKey: ["slow"], queryFn: () => new Promise<never>(() => {}) });
+
+  const script = stateScript(client, writer) ?? "";
+
+  expect(script).toContain("thing");
+  expect(script).not.toContain("private");
+  expect(script).not.toContain("slow");
+  expect(script).not.toContain("promise");
+  // Under devalue a pending query's promise used to throw on the server instead.
+  const onlyPending = new QueryClient({
+    defaultOptions: { dehydrate: { shouldDehydrateQuery: () => true } },
+  });
+  void onlyPending.prefetchQuery({
+    queryKey: ["slow"],
+    queryFn: () => new Promise<never>(() => {}),
+  });
+  expect(stateScript(onlyPending, devalueWriter)).toBeNull();
+});
+
+const rejecting = async (): Promise<never> => {
+  throw new Error("upstream said hunter2");
+};
+
+it("warns once about failed prefetches, naming their keys and nothing they returned", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const client = new QueryClient();
+  await client.prefetchQuery({ queryKey: ["broken"], queryFn: rejecting, retry: false });
+  await client.prefetchQuery({ queryKey: ["also-broken"], queryFn: rejecting, retry: false });
+  const page = "<!DOCTYPE html><html><body></body></html>";
+
+  const output = await injectState(htmlResponse([page]), client, writer, { warn: true }).text();
+
+  expect(output).toBe(page);
+  expect(warn).toHaveBeenCalledTimes(1);
+  const message = String(warn.mock.calls[0]?.[0]);
+  expect(message).toContain('["broken"], ["also-broken"]');
+  expect(message).toContain("prefetch(() => readFromSource())");
+  expect(message).not.toContain("hunter2");
+});
+
+it("warns once about a prefetch still in flight when the state is written, not about a store read", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const client = new QueryClient();
+  new QueryObserver(client, { queryKey: ["read"], queryFn: async () => 1 }).getCurrentResult();
+  void client.prefetchQuery({ queryKey: ["slow"], queryFn: () => new Promise<never>(() => {}) });
+
+  expect(stateScript(client, writer, { warn: true })).toBeNull();
+
+  expect(warn).toHaveBeenCalledTimes(1);
+  const message = String(warn.mock.calls[0]?.[0]);
+  expect(message).toContain('["slow"]');
+  expect(message).not.toContain('["read"]');
+  expect(message).toContain("Await $store.prefetch()");
+});
+
+it("names both kinds of lost prefetch in one warning", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const client = new QueryClient();
+  await client.prefetchQuery({ queryKey: ["broken"], queryFn: rejecting, retry: false });
+  void client.prefetchQuery({ queryKey: ["slow"], queryFn: () => new Promise<never>(() => {}) });
+
+  stateScript(client, writer, { warn: true });
+
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn.mock.calls[0]?.[0]).toContain('["slow"]');
+  expect(warn.mock.calls[0]?.[0]).toContain('["broken"]');
+});
+
+it.each([{ warn: false }, {}])("stays quiet about lost prefetches with %o", async (options) => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const client = new QueryClient();
+  await client.prefetchQuery({ queryKey: ["broken"], queryFn: rejecting, retry: false });
+  void client.prefetchQuery({ queryKey: ["slow"], queryFn: () => new Promise<never>(() => {}) });
+  const page = "<!DOCTYPE html><html><body></body></html>";
+
+  expect(stateScript(client, writer, options)).toBeNull();
+  expect(await injectState(htmlResponse([page]), client, writer, options).text()).toBe(page);
+  expect(warn).not.toHaveBeenCalled();
 });
 
 it("warnOnLatePrefetch warns once, for a fetch but not for a store read or a cache write", async () => {

@@ -34,6 +34,7 @@ async function clientWith(key: unknown[], data: unknown, updatedAt: number): Pro
 afterEach(() => {
   resetPageClientForTests();
   document.getElementById(STATE_ELEMENT_ID)?.remove();
+  vi.restoreAllMocks();
 });
 
 it("creates one client per page and mounts it", () => {
@@ -58,6 +59,25 @@ it("refuses a blob written by a different serializer", async () => {
   stateElement(document, await clientWith(["thing"], 1, 10), "devalue");
   expect(() => pageClient()).toThrowError(/serialized with "devalue"/);
 });
+
+it.each([
+  ["written by another serializer", "devalue", undefined],
+  ["that is not valid JSON", "json", "{not json"],
+])(
+  "keeps one page client when the page's state %s fails to hydrate",
+  async (_, serializerName, text) => {
+    const el = stateElement(document, await clientWith(["thing"], 1, 10), serializerName);
+    if (text !== undefined) el.textContent = text;
+    const mount = vi.spyOn(QueryClient.prototype, "mount");
+
+    expect(() => pageClient()).toThrow();
+    // Every later store read reaches pageClient() again; each one used to build and mount another
+    // client, with its own focus and online listeners, and throw again.
+    const client = pageClient();
+    expect(pageClient()).toBe(client);
+    expect(mount).toHaveBeenCalledTimes(1);
+  },
+);
 
 it("re-hydrates from a new document only when the data is newer", async () => {
   stateElement(document, await clientWith(["thing"], "old", 10));

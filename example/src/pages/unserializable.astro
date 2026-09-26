@@ -1,0 +1,29 @@
+---
+import QueryState from "astro-tanstack-query/components/QueryState.astro";
+import { createQuery } from "astro-tanstack-query/query";
+import { $thing } from "../queries/thing";
+
+const componentEmission = Astro.url.searchParams.get("emit") === "component";
+
+/** What an ORM hands back: devalue refuses any class instance. */
+class Money {
+  cents = 4200;
+}
+
+// A BigInt column stops the JSON serializer and the class instance stops devalue, so this query
+// cannot reach the page under either. It used to take the rest of the response down with it.
+const $ledger = createQuery({
+  queryKey: ["ledger"],
+  queryFn: async () => ({ id: 1n, total: new Money() }),
+});
+
+await $thing.prefetch(async () => ({ value: "server-prefetched", serverHits: 0 }));
+await $ledger.prefetch();
+---
+
+<html lang="en">
+  <body>
+    <p data-page-end>The page finished.</p>
+    {componentEmission && <QueryState />}
+  </body>
+</html>
