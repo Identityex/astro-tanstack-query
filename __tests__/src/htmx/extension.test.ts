@@ -128,6 +128,53 @@ it("keys on the path htmx resolved, so one element's parameter sets do not colli
   );
 });
 
+it("looks a fragment up by its hash rather than scanning the cache", () => {
+  const { htmx, extension } = fakeHtmx();
+  // Stand-ins for everything else a page caches: find() would re-hash the key against each one,
+  // on every hx-get, and a miss is the normal case for the first request to any URL.
+  for (let i = 0; i < 50; i++) pageClient().setQueryData(["other", i], i);
+  const elt = getElement("/hashed", { "hx-tq-stale-time": "60000" });
+  const target = document.createElement("div");
+  extension.onEvent("htmx:beforeRequest", beforeRequest(elt, target));
+  extension.transformResponse("<span>hit</span>", xhr(200), elt);
+  const scan = vi.spyOn(pageClient().getQueryCache(), "getAll");
+
+  expect(extension.onEvent("htmx:beforeRequest", beforeRequest(elt, target))).toBe(false);
+  expect(htmx.swap).toHaveBeenCalledWith(
+    target,
+    "<span>hit</span>",
+    { swapStyle: "innerHTML" },
+    { select: undefined },
+  );
+  expect(extension.onEvent("htmx:beforeRequest", beforeRequest(getElement("/miss"), target))).toBe(
+    true,
+  );
+  expect(scan).not.toHaveBeenCalled();
+});
+
+it("serves a cached fragment under a custom queryKeyHashFn from the client defaults", () => {
+  const { htmx, extension } = fakeHtmx();
+  // What a `config` module's defaultOptions would give the page client. A lookup that hashed the
+  // key itself with hashKey() would miss every fragment setQueryData stored under this hash.
+  const queryKeyHashFn = (key: readonly unknown[]) => `custom:${JSON.stringify(key)}`;
+  const client = pageClient();
+  client.setDefaultOptions({ queries: { ...client.getDefaultOptions().queries, queryKeyHashFn } });
+  const elt = getElement("/custom-hash", { "hx-tq-stale-time": "60000" });
+  const target = document.createElement("div");
+
+  extension.onEvent("htmx:beforeRequest", beforeRequest(elt, target));
+  extension.transformResponse("<span>custom</span>", xhr(200), elt);
+  expect(client.getQueryCache().get('custom:["htmx","/custom-hash"]')).toBeDefined();
+
+  expect(extension.onEvent("htmx:beforeRequest", beforeRequest(elt, target))).toBe(false);
+  expect(htmx.swap).toHaveBeenCalledWith(
+    target,
+    "<span>custom</span>",
+    { swapStyle: "innerHTML" },
+    { select: undefined },
+  );
+});
+
 it("invalidates declared keys after a successful non-GET and dispatches the DOM event", async () => {
   const { extension } = fakeHtmx();
   await pageClient().prefetchQuery({ queryKey: ["todos"], queryFn: async () => "t" });

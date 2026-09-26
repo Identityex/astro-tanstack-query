@@ -81,9 +81,11 @@ export function registerExtension(htmx: HtmxApi): void {
   function serveFromCache(detail: RequestDetail): boolean {
     const { elt, target } = detail;
     if (!isGet(elt)) return true;
-    const query = client
-      .getQueryCache()
-      .find<string>({ queryKey: keyFor(requestUrl(elt, detail)) });
+    // A direct hash lookup, not find(): find() re-hashes the key against every cached query, so a
+    // miss (the first request to any URL) scans them all. This is the hash setQueryData stored the
+    // fragment under, so a queryKeyHashFn in the client's defaults still matches.
+    const { queryHash } = client.defaultQueryOptions({ queryKey: keyFor(requestUrl(elt, detail)) });
+    const query = client.getQueryCache().get<string>(queryHash);
     // Deliberately 0, not the page client's default staleTime: that default exists for the
     // hydration handoff, so data already embedded in the HTML is not refetched the instant it
     // hydrates. A fragment has no handoff — a user clicked — and silently replaying minute-old HTML

@@ -4,11 +4,24 @@ import {
   type MutateOptions,
   type MutationObserverOptions,
   type MutationObserverResult,
+  type OmitKeyof,
 } from "@tanstack/query-core";
 import type { ReadableAtom } from "nanostores";
 import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore, type ObserverLike } from "./observer-store";
 import { isServer } from "./scope-reader";
+
+/**
+ * `MutationObserver`'s options without `throwOnError`: query-core never reads it, and the throw it
+ * asks for needs an error boundary, which only a framework adapter has (D2). The error is the
+ * result's `error`, and `mutateAsync` rejects with it.
+ */
+export type MutationStoreOptions<
+  TData = unknown,
+  TError = DefaultError,
+  TVariables = void,
+  TContext = unknown,
+> = OmitKeyof<MutationObserverOptions<TData, TError, TVariables, TContext>, "throwOnError">;
 
 export interface MutationStore<
   TData = unknown,
@@ -30,9 +43,9 @@ export function createMutation<
   TVariables = void,
   TContext = unknown,
 >(
-  options: MutationObserverOptions<TData, TError, TVariables, TContext>,
+  options: MutationStoreOptions<TData, TError, TVariables, TContext>,
 ): MutationStore<TData, TError, TVariables, TContext> {
-  type Options = MutationObserverOptions<TData, TError, TVariables, TContext>;
+  type Options = MutationStoreOptions<TData, TError, TVariables, TContext>;
   type Result = MutationObserverResult<TData, TError, TVariables, TContext>;
 
   type Native = MutationObserver<TData, TError, TVariables, TContext>;
@@ -62,18 +75,29 @@ export function createMutation<
       "browser-only",
       `${name}() is browser-only; mutations never run during SSR.`,
     );
-  const observer = (): Native => {
-    if (isServer()) throw browserOnly("mutate");
+  const observer = (method: "mutate" | "mutateAsync" | "reset"): Native => {
+    if (isServer()) throw browserOnly(method);
     return (parts.observer() as MutationObserverLike).native;
   };
 
   const store = parts.store as MutationStore<TData, TError, TVariables, TContext>;
-  store.mutate = (variables, mutateOptions) => {
-    observer()
-      .mutate(variables, mutateOptions)
-      .catch(() => undefined);
+  const run = (
+    method: "mutate" | "mutateAsync",
+    variables: TVariables,
+    mutateOptions?: MutateOptions<TData, TError, TVariables, TContext>,
+  ): Promise<TData> => {
+    const native = observer(method);
+    // MutationObserver fires per-call callbacks only while it has listeners — React Query's
+    // "component still mounted" check. A store used only for its methods (a <script>, an htmx
+    // handler, an island that renders a button) has none, so hold one for the call. A store has
+    // no component lifetime, so this also fires them after the calling island unmounted.
+    const release = store.listen(() => {});
+    return native.mutate(variables, mutateOptions).finally(release);
   };
-  store.mutateAsync = (variables, mutateOptions) => observer().mutate(variables, mutateOptions);
-  store.reset = () => observer().reset();
+  store.mutate = (variables, mutateOptions) => {
+    run("mutate", variables, mutateOptions).catch(() => undefined);
+  };
+  store.mutateAsync = (variables, mutateOptions) => run("mutateAsync", variables, mutateOptions);
+  store.reset = () => observer("reset").reset();
   return store;
 }
