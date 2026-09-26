@@ -1,24 +1,48 @@
+import type { QueryKey } from "@tanstack/query-core";
 import type { APIContext } from "astro";
 import { settings } from "virtual:astro-tanstack-query/config";
 import { afterEach, expect, it, vi } from "vitest";
 import { onRequest } from "../../src/middleware";
 import { requestScope } from "../../src/query/scope-reader";
+import { absoluteUrl } from "../../src/query/url";
+import { reader } from "../../src/serializer/json";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
-function context(isPrerendered = false): APIContext {
+interface Where {
+  url?: string;
+  /** Astro hands a rewrite, and an error page after a failed render, the same `locals` object. */
+  locals?: object;
+}
+
+function context(
+  isPrerendered = false,
+  { url = "http://x/page", locals = {} }: Where = {},
+): APIContext {
   return {
-    url: new URL("http://x/page"),
-    locals: {},
+    url: new URL(url),
+    locals,
     isPrerendered,
     callAction: (() => Promise.resolve({ data: undefined })) as unknown as APIContext["callAction"],
   } as unknown as APIContext;
 }
 
 const html = (body: string) => new Response(body, { headers: { "content-type": "text/html" } });
+const page = (body: string) => html(`<!DOCTYPE html><html><body>${body}</body></html>`);
+
+/** The query keys in each state element of `text`, one list per element. */
+function stateKeys(text: string): QueryKey[][] {
+  const elements = text.matchAll(
+    /<script type="application\/json" id="astro-tq"[^>]*>(.*?)<\/script>/gs,
+  );
+  return [...elements].map(([, state]) =>
+    reader.parse(state ?? "").queries.map((query) => query.queryKey),
+  );
+}
 
 it("creates a per-request client on locals with the ssr staleTime", async () => {
   const ctx = context();
@@ -31,7 +55,7 @@ it("makes the scope visible while rendering and emits the state", async () => {
   const response = await onRequest(ctx, async () => {
     const scope = requestScope();
     expect(scope?.queryClient).toBe(ctx.locals.queryClient);
-    expect(scope?.url.pathname).toBe("/page");
+    expect(scope?.url).toBe(ctx.url);
     await ctx.locals.queryClient.prefetchQuery({ queryKey: ["t"], queryFn: async () => 1 });
     return html("<body><p>hi</p></body>");
   });
@@ -146,3 +170,110 @@ it.each([
     if (warnings > 0) expect(warn.mock.calls[0]?.[0]).toContain('["from-the-build-origin"]');
   },
 );
+
+async function withOrigin<T>(origin: string, run: () => Promise<T>): Promise<T> {
+  const previous = settings.origin;
+  settings.origin = origin;
+  try {
+    return await run();
+  } finally {
+    settings.origin = previous;
+  }
+}
+
+it("under Astro.rewrite(), keeps the request's client and writes one state element", async () => {
+  // Astro.rewrite() runs the middleware again from inside the page that called it, on its `locals`.
+  const locals = {};
+  const product = context(false, { url: "http://x/product/p-1", locals });
+  const notFound = context(false, { url: "http://x/404", locals });
+  const response = await respond(product, async () => {
+    await product.locals.queryClient.prefetchQuery({
+      queryKey: ["product", "p-1"],
+      queryFn: async () => null,
+    });
+    return respond(notFound, async () => {
+      expect(requestScope()?.url.pathname).toBe("/404");
+      expect(requestScope()?.queryClient).toBe(product.locals.queryClient);
+      await notFound.locals.queryClient.prefetchQuery({
+        queryKey: ["notFoundCopy"],
+        queryFn: async () => "gone",
+      });
+      return page("<p>not found</p>");
+    });
+  });
+
+  expect(stateKeys(await response.text())).toEqual([[["product", "p-1"], ["notFoundCopy"]]]);
+  expect(product.locals.queryClient.getQueryCache().getAll()).toHaveLength(0);
+});
+
+it("gives an error page its own client after a failed render, though they share `locals`", async () => {
+  // Astro renders 404.astro or 500.astro with the failed render's `locals` (the Vercel adapter
+  // always passes one), but only once that render has left its scope.
+  const locals = {};
+  const failed = context(false, { url: "http://x/broken", locals });
+  await expect(respond(failed, () => Promise.reject(new Error("render failed")))).rejects.toThrow(
+    "render failed",
+  );
+  const failedClient = failed.locals.queryClient;
+
+  const errorPage = context(false, { url: "http://x/500", locals });
+  const response = await respond(errorPage, async () => {
+    await errorPage.locals.queryClient.prefetchQuery({
+      queryKey: ["errorCopy"],
+      queryFn: async () => "oops",
+    });
+    return page("<p>500</p>");
+  });
+
+  expect(errorPage.locals.queryClient).not.toBe(failedClient);
+  expect(stateKeys(await response.text())).toEqual([[["errorCopy"]]]);
+});
+
+it("releases the request client when the render throws", async () => {
+  const ctx = context();
+  await expect(
+    respond(ctx, async () => {
+      await prefetchRetained(ctx);
+      throw new Error("render failed");
+    }),
+  ).rejects.toThrow("render failed");
+  expect(ctx.locals.queryClient.getQueryCache().getAll()).toHaveLength(0);
+});
+
+it("leaves a rewrite that throws to the page that called it, which may render on", async () => {
+  const locals = {};
+  const product = context(false, { url: "http://x/product/p-1", locals });
+  const broken = context(false, { url: "http://x/broken", locals });
+  const response = await respond(product, async () => {
+    await product.locals.queryClient.prefetchQuery({
+      queryKey: ["product", "p-1"],
+      queryFn: async () => null,
+    });
+    await respond(broken, () => Promise.reject(new Error("rewrite failed"))).catch(() => null);
+    return page("<p>fallback</p>");
+  });
+
+  expect(stateKeys(await response.text())).toEqual([[["product", "p-1"]]]);
+});
+
+it("refuses to serve from a process with a global window, where stores would share one cache", async () => {
+  vi.stubGlobal("window", {});
+  const ctx = context();
+  const render = vi.fn(() => Promise.resolve(page("")));
+
+  await expect(onRequest(ctx, render)).rejects.toMatchObject({ kind: "window-on-server" });
+  expect(render).not.toHaveBeenCalled();
+});
+
+it("with ssr.origin, resolves absoluteUrl() against it rather than a forged Host", async () => {
+  // On @astrojs/node the request URL's host is whatever Host header the client sent.
+  const ctx = context(false, { url: "http://169.254.169.254/page?x=1" });
+  const seen: string[] = [];
+  await withOrigin("https://app.example", () =>
+    respond(ctx, async () => {
+      seen.push(absoluteUrl("/api/x"), requestScope()?.url.href ?? "no scope");
+      return html("");
+    }),
+  );
+  expect(seen).toEqual(["https://app.example/api/x", "https://app.example/page?x=1"]);
+});

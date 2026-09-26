@@ -1,4 +1,5 @@
 import type { DefaultOptions } from "@tanstack/query-core";
+import type { settings as generated } from "virtual:astro-tanstack-query/config";
 import { reader, writer } from "../../src/serializer/devalue";
 
 // The devalue-wired twin of ./virtual-config.ts. It exists so the tree-shaking suite can bundle a
@@ -7,4 +8,5 @@ import { reader, writer } from "../../src/serializer/devalue";
 export const defaultOptions: DefaultOptions = {};
 export const stateReader = reader;
 export const stateWriter = writer;
-export const settings = { emit: "middleware" as const, ssrStaleTime: 60_000 };
+// Typed by the module's declaration, as in ./virtual-config.ts.
+export const settings: typeof generated = { emit: "middleware", ssrStaleTime: 60_000 };

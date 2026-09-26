@@ -30,7 +30,9 @@ export function virtualConfigPlugin(options: ResolvedOptions, root: URL): Plugin
         // writer — and, for devalue, its `stringify` — out of the browser bundle entirely.
         `export { reader as stateReader, writer as stateWriter } from "astro-tanstack-query/serializer/${options.serializer}";`,
         "export const defaultOptions = user.defaultOptions ?? {};",
-        `export const settings = ${JSON.stringify({ emit: options.emit, ssrStaleTime: options.ssr.staleTime })};`,
+        // The page client reads ssrStaleTime from this object too, so every key here reaches the
+        // browser bundle. An unset origin is undefined, which JSON.stringify leaves out.
+        `export const settings = ${JSON.stringify({ emit: options.emit, ssrStaleTime: options.ssr.staleTime, origin: options.ssr.origin ?? undefined })};`,
       ].join("\n");
     },
   };
