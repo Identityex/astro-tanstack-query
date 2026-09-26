@@ -24,6 +24,9 @@ npm install --prefix example   # the example app is the end-to-end fixture
 npx lefthook install   # optional: format, lint and commitlint on commit
 ```
 
+The pre-commit hook formats staged files with Prettier and skips the ones it has no parser for,
+such as `.astro` and `.svelte`, as `npm run format:check` does.
+
 ## Repository layout
 
 ```text
