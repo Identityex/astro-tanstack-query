@@ -1,8 +1,8 @@
-import type { DefaultError, MutationObserverOptions } from "@tanstack/query-core";
+import type { DefaultError } from "@tanstack/query-core";
 import { getActionPath } from "astro:actions";
 import type { ActionError } from "astro:actions";
 import { TanstackQueryAstroError } from "../query/errors";
-import { createMutation, type MutationStore } from "../query/mutation";
+import { createMutation, type MutationStore, type MutationStoreOptions } from "../query/mutation";
 import { isServer, requestScope } from "../query/scope-reader";
 import { createQuery, type QueryStore, type QueryStoreOptions } from "../query/store";
 
@@ -22,7 +22,7 @@ export type ActionOutput<A extends ActionLike> = Awaited<ReturnType<A["orThrow"]
 export function actionMutation<A extends ActionLike, TContext = unknown>(
   action: A,
   options: Omit<
-    MutationObserverOptions<ActionOutput<A>, ActionError, ActionInput<A>, TContext>,
+    MutationStoreOptions<ActionOutput<A>, ActionError, ActionInput<A>, TContext>,
     "mutationFn"
   > = {},
 ): MutationStore<ActionOutput<A>, ActionError, ActionInput<A>, TContext> {

@@ -1,8 +1,29 @@
 import { hashKey, type DefaultError, type QueryKey } from "@tanstack/query-core";
 import { STORE_UNMOUNT_DELAY, atom, onMount, type WritableAtom } from "nanostores";
 import { isServer } from "./scope-reader";
-import { createQuery, type QueryStore, type QueryStoreOptions } from "./store";
+import {
+  createQuery,
+  type DefinedInitialDataQueryStoreOptions,
+  type DefinedQueryStore,
+  type QueryStore,
+  type QueryStoreOptions,
+} from "./store";
 
+/**
+ * Memoises one store per `hashKey(queryKey)` and releases it once nothing uses it. When `define`
+ * returns `initialData`, every member's `data` is defined.
+ */
+export function family<
+  TParams,
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+>(
+  define: (
+    params: TParams,
+  ) => DefinedInitialDataQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey>,
+): (params: TParams) => DefinedQueryStore<TQueryFnData, TError, TData, TQueryKey>;
 /**
  * Memoises stores by `hashKey(queryKey)` so a component can call `$user(id)` on every render.
  * A member that is not mounted leaves the map after nanostores' unmount delay (about a second),
@@ -10,6 +31,15 @@ import { createQuery, type QueryStore, type QueryStoreOptions } from "./store";
  * member ever mounts. A held member that mounts after that puts itself back.
  * On the server stores are transient snapshots, so nothing is memoised (no cross-request growth).
  */
+export function family<
+  TParams,
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+>(
+  define: (params: TParams) => QueryStoreOptions<TQueryFnData, TError, TData, TQueryKey>,
+): (params: TParams) => QueryStore<TQueryFnData, TError, TData, TQueryKey>;
 export function family<
   TParams,
   TQueryFnData = unknown,

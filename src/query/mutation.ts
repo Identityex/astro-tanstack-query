@@ -4,11 +4,24 @@ import {
   type MutateOptions,
   type MutationObserverOptions,
   type MutationObserverResult,
+  type OmitKeyof,
 } from "@tanstack/query-core";
 import type { ReadableAtom } from "nanostores";
 import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore, type ObserverLike } from "./observer-store";
 import { isServer } from "./scope-reader";
+
+/**
+ * `MutationObserver`'s options without `throwOnError`: query-core never reads it, and the throw it
+ * asks for needs an error boundary, which only a framework adapter has (D2). The error is the
+ * result's `error`, and `mutateAsync` rejects with it.
+ */
+export type MutationStoreOptions<
+  TData = unknown,
+  TError = DefaultError,
+  TVariables = void,
+  TContext = unknown,
+> = OmitKeyof<MutationObserverOptions<TData, TError, TVariables, TContext>, "throwOnError">;
 
 export interface MutationStore<
   TData = unknown,
@@ -30,9 +43,9 @@ export function createMutation<
   TVariables = void,
   TContext = unknown,
 >(
-  options: MutationObserverOptions<TData, TError, TVariables, TContext>,
+  options: MutationStoreOptions<TData, TError, TVariables, TContext>,
 ): MutationStore<TData, TError, TVariables, TContext> {
-  type Options = MutationObserverOptions<TData, TError, TVariables, TContext>;
+  type Options = MutationStoreOptions<TData, TError, TVariables, TContext>;
   type Result = MutationObserverResult<TData, TError, TVariables, TContext>;
 
   type Native = MutationObserver<TData, TError, TVariables, TContext>;

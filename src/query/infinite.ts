@@ -3,10 +3,13 @@ import {
   hashKey,
   type DataTag,
   type DefaultError,
+  type DefinedInfiniteQueryObserverResult,
   type InfiniteData,
   type InfiniteQueryObserverOptions,
   type InfiniteQueryObserverResult,
   type InvalidateOptions,
+  type NonUndefinedGuard,
+  type OmitKeyof,
   type QueryFunction,
   type QueryKey,
   type RefetchOptions,
@@ -18,17 +21,43 @@ import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore, type ObserverLike } from "./observer-store";
 import { isServer } from "./scope-reader";
 
+/** `InfiniteQueryObserver`'s options without `throwOnError` and `suspense`, as `QueryStoreOptions`. */
+export type InfiniteQueryStoreOptions<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+> = OmitKeyof<
+  InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>,
+  "throwOnError" | "suspense"
+>;
+
+/** Options whose `initialData` is always defined, so the store's `data` is never `undefined`. */
+export type DefinedInitialDataInfiniteQueryStoreOptions<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+> = InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam> & {
+  initialData:
+    | NonUndefinedGuard<InfiniteData<TQueryFnData, TPageParam>>
+    | (() => NonUndefinedGuard<InfiniteData<TQueryFnData, TPageParam>>);
+};
+
 export interface InfiniteQueryStore<
   TQueryFnData = unknown,
   TError = DefaultError,
   TData = InfiniteData<TQueryFnData>,
   TQueryKey extends QueryKey = QueryKey,
   TPageParam = unknown,
-> extends ReadableAtom<InfiniteQueryObserverResult<TData, TError>> {
+  TResult = InfiniteQueryObserverResult<TData, TError>,
+> extends ReadableAtom<TResult> {
   /** `hashKey(queryKey)` of the current options. */
   readonly key: string;
   /** The current options. `queryKey` is tagged with the cached pages, so `getQueryData` is typed. */
-  readonly options: InfiniteQueryObserverOptions<
+  readonly options: InfiniteQueryStoreOptions<
     TQueryFnData,
     TError,
     TData,
@@ -49,6 +78,23 @@ export interface InfiniteQueryStore<
   ): InfiniteData<TQueryFnData, TPageParam> | undefined;
 }
 
+/** An infinite store seeded with `initialData`, whose `data` is therefore never `undefined`. */
+export type DefinedInfiniteQueryStore<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+> = InfiniteQueryStore<
+  TQueryFnData,
+  TError,
+  TData,
+  TQueryKey,
+  TPageParam,
+  DefinedInfiniteQueryObserverResult<TData, TError>
+>;
+
+/** With `initialData`, `data` is never `undefined`, as with `createQuery`. */
 export function createInfiniteQuery<
   TQueryFnData,
   TError = DefaultError,
@@ -57,12 +103,46 @@ export function createInfiniteQuery<
   TPageParam = unknown,
 >(
   input:
-    | InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+    | DefinedInitialDataInfiniteQueryStoreOptions<
+        TQueryFnData,
+        TError,
+        TData,
+        TQueryKey,
+        TPageParam
+      >
     | ReadableAtom<
-        InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+        DefinedInitialDataInfiniteQueryStoreOptions<
+          TQueryFnData,
+          TError,
+          TData,
+          TQueryKey,
+          TPageParam
+        >
       >,
+): DefinedInfiniteQueryStore<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
+export function createInfiniteQuery<
+  TQueryFnData,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+>(
+  input:
+    | InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+    | ReadableAtom<InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>>,
+): InfiniteQueryStore<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
+export function createInfiniteQuery<
+  TQueryFnData,
+  TError = DefaultError,
+  TData = InfiniteData<TQueryFnData>,
+  TQueryKey extends QueryKey = QueryKey,
+  TPageParam = unknown,
+>(
+  input:
+    | InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>
+    | ReadableAtom<InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>>,
 ): InfiniteQueryStore<TQueryFnData, TError, TData, TQueryKey, TPageParam> {
-  type Options = InfiniteQueryObserverOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
+  type Options = InfiniteQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
   type Result = InfiniteQueryObserverResult<TData, TError>;
   type Native = InfiniteQueryObserver<TQueryFnData, TError, TData, TQueryKey, TPageParam>;
 

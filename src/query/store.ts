@@ -3,7 +3,10 @@ import {
   hashKey,
   type DataTag,
   type DefaultError,
+  type DefinedQueryObserverResult,
   type InvalidateOptions,
+  type NonUndefinedGuard,
+  type OmitKeyof,
   type QueryFunction,
   type QueryKey,
   type QueryObserverOptions,
@@ -17,19 +20,39 @@ import { TanstackQueryAstroError } from "./errors";
 import { createObserverStore } from "./observer-store";
 import { isServer } from "./scope-reader";
 
+/**
+ * `QueryObserver`'s options without `throwOnError` and `suspense`, which need an error boundary or
+ * Suspense that only a framework adapter has (D2). query-core reads `throwOnError` only to track
+ * `error` and leaves the throw to the adapter, and `suspense` silently stops a store refetching an
+ * errored query when its key changes. Read the result's `error` or `status` instead.
+ */
 export type QueryStoreOptions<
   TQueryFnData = unknown,
   TError = DefaultError,
   TData = TQueryFnData,
   TQueryKey extends QueryKey = QueryKey,
-> = QueryObserverOptions<TQueryFnData, TError, TData, TQueryFnData, TQueryKey>;
+> = OmitKeyof<
+  QueryObserverOptions<TQueryFnData, TError, TData, TQueryFnData, TQueryKey>,
+  "throwOnError" | "suspense"
+>;
+
+/** Options whose `initialData` is always defined, so the store's `data` is never `undefined`. */
+export type DefinedInitialDataQueryStoreOptions<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+> = QueryStoreOptions<TQueryFnData, TError, TData, TQueryKey> & {
+  initialData: NonUndefinedGuard<TQueryFnData> | (() => NonUndefinedGuard<TQueryFnData>);
+};
 
 export interface QueryStore<
   TQueryFnData = unknown,
   TError = DefaultError,
   TData = TQueryFnData,
   TQueryKey extends QueryKey = QueryKey,
-> extends ReadableAtom<QueryObserverResult<TData, TError>> {
+  TResult = QueryObserverResult<TData, TError>,
+> extends ReadableAtom<TResult> {
   /** `hashKey(queryKey)` of the current options. */
   readonly key: string;
   /** The current options. `queryKey` is tagged, so `getQueryClient().getQueryData(options.queryKey)` is typed. */
@@ -46,6 +69,40 @@ export interface QueryStore<
   ): TQueryFnData | undefined;
 }
 
+/** A store seeded with `initialData`, whose `data` is therefore never `undefined`. */
+export type DefinedQueryStore<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+> = QueryStore<TQueryFnData, TError, TData, TQueryKey, DefinedQueryObserverResult<TData, TError>>;
+
+// The defined overload states what already holds at runtime: whichever client a read uses (the
+// page's, the request's or the detached placeholder), the Query is created from `initialData`, so
+// it starts as success with data, and setData() cannot clear it because query-core ignores an
+// undefined update. As in the official adapters, a Query another caller created first without
+// `initialData` is the exception.
+/** With `initialData`, `data` is never `undefined`. */
+export function createQuery<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+>(
+  input:
+    | DefinedInitialDataQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey>
+    | ReadableAtom<DefinedInitialDataQueryStoreOptions<TQueryFnData, TError, TData, TQueryKey>>,
+): DefinedQueryStore<TQueryFnData, TError, TData, TQueryKey>;
+export function createQuery<
+  TQueryFnData = unknown,
+  TError = DefaultError,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+>(
+  input:
+    | QueryStoreOptions<TQueryFnData, TError, TData, TQueryKey>
+    | ReadableAtom<QueryStoreOptions<TQueryFnData, TError, TData, TQueryKey>>,
+): QueryStore<TQueryFnData, TError, TData, TQueryKey>;
 export function createQuery<
   TQueryFnData = unknown,
   TError = DefaultError,
