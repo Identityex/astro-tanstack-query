@@ -11,23 +11,24 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        # No dependency cache in the publishing job: a poisoned cache would reach the npm tarball.
         with:
           node-version-file: .nvmrc
-          cache: npm
           registry-url: https://registry.npmjs.org
       - run: npm ci
       # Opens or updates the "Version packages" pull request while changesets are pending, and
       # publishes when that pull request is merged.
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
-          publish: npm run release
-          version: npx changeset version
-          title: "chore: version packages"
-          commit: "chore: version packages"
+          # v2 publishes nothing without publish-script. `release` builds before publishing.
+          publish-script: npm run release
+          version-script: npx changeset version
+          pr-title: "chore: version packages"
+          commit-message: "chore: version packages"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Unused once npm trusted publishing is configured for this repository; until then,
-          # an automation token. Trusted publishing can only be set up on a package that exists.
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Read through the .npmrc that setup-node's registry-url writes. Leave the secret unset once
+          # npm trusted publishing is configured; OIDC then needs no token. Trusted publishing can
+          # only be configured on a package that already exists, so the first release is manual.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
