@@ -99,10 +99,10 @@ export default [
     // `reader` and `writer` as two objects precisely so this row can name one: a property cannot
     // be shaken off a live object, so while both halves sat on a single `devalueSerializer`
     // literal every page opting into serializer: "devalue" also shipped `stringify`, which runs
-    // solely on the server in stateScript(). Measured with devalue 5.9.4 (size-limit, and the same
-    // pipeline for the bundles that are not rows): devalue `parse` alone 1,670 B, `parse` +
-    // `stringify` 3,832 B; the whole module — what this row measured before the split, and what it
-    // would measure again if the `import` field were ever dropped — 3,964 B; this row 1,694 B.
+    // solely on the server in stateScript(). Measured with devalue 6.0.2 (size-limit, and the same
+    // pipeline for the bundles that are not rows): devalue `parse` alone 1,745 B, `parse` +
+    // `stringify` 4,201 B; the whole module — what this row measured before the split, and what it
+    // would measure again if the `import` field were ever dropped — 4,329 B; this row 1,767 B.
     // Affects only serializer: "devalue".
     name: "devalue reader (browser) on top of query",
     path: "dist/serializer/devalue.js",
@@ -112,7 +112,7 @@ export default [
     modifyEsbuildConfig: onTopOfQuery,
   },
   {
-    // The server half, which no browser downloads. Measured 2,776 B (size-limit). It earns a row of
+    // The server half, which no browser downloads. Measured 3,064 B (size-limit, devalue 6.0.2). It earns a row of
     // its own so the pair reads as "reader + writer ~= the whole module": fuse the two objects back
     // together and the reader row jumps by roughly this much, which is exactly the regression to
     // catch.
