@@ -1,7 +1,12 @@
 import { isInputError, type ActionClient, type ActionError } from "astro:actions";
 import type { z } from "astro/zod";
 import { expectTypeOf, it } from "vitest";
-import { actionMutation, actionQuery, actionQueryOptions } from "../../../src/actions/index";
+import {
+  actionMutation,
+  actionQuery,
+  actionQueryOptions,
+  isActionError,
+} from "../../../src/actions/index";
 import { getQueryClient } from "../../../src/query/client";
 import { family } from "../../../src/query/family";
 
@@ -15,14 +20,13 @@ declare const actions: {
 
 it("types an action mutation's input error fields with the Action's schema", () => {
   const error = actionMutation(actions.addTodo).get().error;
-  expectTypeOf(error).toEqualTypeOf<ActionError<{ text: string }> | null>();
-  if (error && isInputError(error)) {
+  // A transport failure (offline, a dropped connection) rejects orThrow() with a plain Error.
+  expectTypeOf(error).toEqualTypeOf<ActionError<{ text: string }> | Error | null>();
+  if (isActionError(error) && isInputError(error)) {
     expectTypeOf(error.fields).toEqualTypeOf<{ text?: string[] | undefined }>();
     // @ts-expect-error: `txet` is not a field of the Action's schema.
     void error.fields.txet;
   }
-  // `null` is not an `ActionError`, so without the guard isInputError() takes its untyped overload.
-  if (isInputError(error)) expectTypeOf(error.fields.txet).toEqualTypeOf<string[] | undefined>();
 });
 
 it("types an action mutation's variables with the Action's input", () => {

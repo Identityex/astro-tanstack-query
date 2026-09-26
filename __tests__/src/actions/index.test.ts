@@ -3,7 +3,13 @@ import type { ActionClient, ActionErrorCode, SafeResult } from "astro:actions";
 import { afterEach, expect, it, vi } from "vitest";
 import { getQueryClient, resetPageClientForTests } from "../../../src/query/client";
 import { family } from "../../../src/query/family";
-import { actionMutation, actionQuery, actionQueryOptions } from "../../../src/actions/index";
+import { ActionError } from "astro:actions";
+import {
+  actionMutation,
+  actionQuery,
+  actionQueryOptions,
+  isActionError,
+} from "../../../src/actions/index";
 
 afterEach(() => resetPageClientForTests());
 
@@ -85,4 +91,11 @@ it("actionQueryOptions feeds the query client and family with the same key as ac
   const $page = family((page: number) => actionQueryOptions(list, { page }, { staleTime: 1000 }));
   expect($page(3)).toBe($page(3));
   expect($page(3).get().data).toEqual(["item-3"]);
+});
+
+it("isActionError tells the Action's own error from a failed request", () => {
+  expect(isActionError(new ActionError({ code: "BAD_REQUEST" }))).toBe(true);
+  // What orThrow() rejects with when the fetch itself fails, offline or on a dropped connection.
+  expect(isActionError(new TypeError("Failed to fetch"))).toBe(false);
+  expect(isActionError(null)).toBe(false);
 });

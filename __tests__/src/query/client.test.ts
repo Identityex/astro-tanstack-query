@@ -141,10 +141,40 @@ it("keeps newer data when a server island's state is older", async () => {
   stateElement(document, await clientWith(["thing"], "newer", 20));
   const client = pageClient();
 
-  document.body.append(islandState(await clientWith(["thing"], "older", 10)));
+  const source = await clientWith(["thing"], "older", 10);
+  await source.prefetchQuery({ queryKey: ["cart"], queryFn: () => "from the island" });
+  document.body.append(islandState(source));
   await Promise.resolve();
 
+  // The island's other key proves its state was read; its older copy of ["thing"] was not taken.
+  expect(client.getQueryData(["cart"])).toBe("from the island");
+  expect(document.getElementsByClassName(STATE_ELEMENT_ID)).toHaveLength(0);
   expect(client.getQueryData(["thing"])).toBe("newer");
+});
+
+it("takes state only from a script element, never from user HTML carrying the class or the id", async () => {
+  stateElement(document, await clientWith(["thing"], "from the page", 10));
+  // What a sanitizer lets through from user content: class, id and data-* on a <div>.
+  const forged = writer.stringify(dehydrate(await clientWith(["thing"], "forged", 99)));
+  const byId = document.createElement("div");
+  byId.id = STATE_ELEMENT_ID;
+  byId.dataset["serializer"] = "json";
+  byId.textContent = forged;
+  document.body.prepend(byId);
+
+  const client = pageClient();
+  expect(client.getQueryData(["thing"])).toBe("from the page");
+
+  const byClass = document.createElement("div");
+  byClass.className = STATE_ELEMENT_ID;
+  byClass.dataset["serializer"] = "json";
+  byClass.textContent = forged;
+  document.body.append(byClass);
+  await Promise.resolve();
+
+  expect(client.getQueryData(["thing"])).toBe("from the page");
+  // Dropped from the live collection all the same, so later mutations do not look at it again.
+  expect(document.getElementsByClassName(STATE_ELEMENT_ID)).toHaveLength(0);
 });
 
 it("refuses a server island's state written by a different serializer", async () => {

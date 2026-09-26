@@ -49,6 +49,15 @@ it("returns a pending placeholder and warns once when no scope exists", () => {
   expect(warn).toHaveBeenCalledTimes(1);
 });
 
+it("shapes a placeholder with no scope under the configured defaults, as the page client would", () => {
+  publish(undefined);
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  // Fresh for ssr.staleTime (60 s in the test config), so the page client would not fetch it on
+  // mount; a client without those defaults would call it stale and report a fetch.
+  const $seeded = createQuery({ queryKey: ["seeded"], queryFn: async () => 2, initialData: 1 });
+  expect($seeded.get()).toMatchObject({ data: 1, isFetching: false, fetchStatus: "idle" });
+});
+
 describe("the snapshot matches the first browser read", () => {
   // The browser's first read mounts the store, which subscribes the observer and starts any
   // fetch-on-mount synchronously. The server must report that same state without starting it.

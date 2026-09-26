@@ -1,5 +1,5 @@
 import type { DataTag, DefaultError } from "@tanstack/query-core";
-import { getActionPath, type ActionClient } from "astro:actions";
+import { ActionError, getActionPath, type ActionClient } from "astro:actions";
 // Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
 // them to false and drops the branches behind them. Keep them inline; a helper function defeats
 // the fold: neither esbuild nor Rolldown inlines it.
@@ -28,9 +28,11 @@ interface TypedAction<A extends AnyAction> {
 }
 
 type ActionQueryKey<A extends AnyAction> = readonly ["action", string, ActionInput<A>];
-type ActionQueryError<A extends AnyAction> = ActionErrorOf<A> | DefaultError;
+// The Action's own error, or whatever else the call rejects with: offline, a dropped connection.
+// `orThrow` fetches, and a fetch that fails never becomes an ActionError.
+type ActionCallError<A extends AnyAction> = ActionErrorOf<A> | DefaultError;
 type ActionQueryStoreOptions<A extends AnyAction, TData> = Omit<
-  QueryStoreOptions<ActionOutput<A>, ActionQueryError<A>, TData, ActionQueryKey<A>>,
+  QueryStoreOptions<ActionOutput<A>, ActionCallError<A>, TData, ActionQueryKey<A>>,
   "queryKey" | "queryFn"
 >;
 // The input may be left out exactly when the Action accepts `undefined`, as an Action that takes
@@ -48,8 +50,8 @@ type ActionQueryArgs<A extends AnyAction, TData> =
 export function actionQueryOptions<A extends AnyAction, TData = ActionOutput<A>>(
   action: A,
   ...args: ActionQueryArgs<A, TData>
-): QueryStoreOptions<ActionOutput<A>, ActionQueryError<A>, TData, ActionQueryKey<A>> & {
-  queryKey: DataTag<ActionQueryKey<A>, ActionOutput<A>, ActionQueryError<A>>;
+): QueryStoreOptions<ActionOutput<A>, ActionCallError<A>, TData, ActionQueryKey<A>> & {
+  queryKey: DataTag<ActionQueryKey<A>, ActionOutput<A>, ActionCallError<A>>;
 };
 // An omitted input is `undefined`, which the overload only allows when the Action accepts it.
 export function actionQueryOptions<A extends AnyAction, TData = ActionOutput<A>>(
@@ -58,7 +60,7 @@ export function actionQueryOptions<A extends AnyAction, TData = ActionOutput<A>>
   options: ActionQueryStoreOptions<A, TData> = {},
 ) {
   const typed: TypedAction<A> = action;
-  return queryOptions<ActionOutput<A>, ActionQueryError<A>, TData, ActionQueryKey<A>>({
+  return queryOptions<ActionOutput<A>, ActionCallError<A>, TData, ActionQueryKey<A>>({
     ...options,
     queryKey: ["action", getActionPath(action), input],
     queryFn: async (): Promise<ActionOutput<A>> => {
@@ -79,21 +81,39 @@ export function actionQueryOptions<A extends AnyAction, TData = ActionOutput<A>>
 export function actionQuery<A extends AnyAction, TData = ActionOutput<A>>(
   action: A,
   ...args: ActionQueryArgs<A, TData>
-): QueryStore<ActionOutput<A>, ActionQueryError<A>, TData, ActionQueryKey<A>> {
+): QueryStore<ActionOutput<A>, ActionCallError<A>, TData, ActionQueryKey<A>> {
   return createQuery(actionQueryOptions(action, ...args));
 }
 
-/** An Astro Action as a typed mutation: `error` is the Action's `ActionError<TInput>`. */
+/**
+ * An Astro Action as a typed mutation. `error` is the Action's `ActionError<TInput>` or a transport
+ * error; `error && isInputError(error)` narrows to the typed `fields`.
+ */
 export function actionMutation<A extends AnyAction, TContext = unknown>(
   action: A,
   options: Omit<
-    MutationStoreOptions<ActionOutput<A>, ActionErrorOf<A>, ActionInput<A>, TContext>,
+    MutationStoreOptions<ActionOutput<A>, ActionCallError<A>, ActionInput<A>, TContext>,
     "mutationFn"
   > = {},
-): MutationStore<ActionOutput<A>, ActionErrorOf<A>, ActionInput<A>, TContext> {
-  return createMutation<ActionOutput<A>, ActionErrorOf<A>, ActionInput<A>, TContext>({
+): MutationStore<ActionOutput<A>, ActionCallError<A>, ActionInput<A>, TContext> {
+  return createMutation<ActionOutput<A>, ActionCallError<A>, ActionInput<A>, TContext>({
     mutationKey: ["action", getActionPath(action)],
     ...options,
     mutationFn: (input) => action.orThrow(input),
   });
+}
+
+// ActionError's own bound on its input parameter, read from the class rather than restated.
+type ActionErrorInput = ActionError extends ActionError<infer T> ? T : never;
+
+/**
+ * Narrows a mutation's or query's `error` to the Action's own `ActionError`, keeping its input type,
+ * so `isInputError(error)` then types `fields` by the Action's schema. The call can also reject
+ * with a plain `Error` when the request itself fails (offline, a dropped connection); `instanceof`
+ * alone cannot keep the type, because the class's own parameter defaults to `any`.
+ */
+export function isActionError<T extends ActionErrorInput>(
+  error: ActionError<T> | Error | null | undefined,
+): error is ActionError<T> {
+  return error instanceof ActionError;
 }

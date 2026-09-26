@@ -187,22 +187,25 @@ export function injectState(
   writer: StateWriter | null,
   options: EmitOptions = {},
 ): Response {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!response.body || !contentType.includes("text/html")) {
-    // An endpoint has finished with the client by the time it returns its Response.
+  // Nothing left to render: a redirect, or an empty response. Returned as the same object, which
+  // Astro's own handling of a bodiless reroute relies on.
+  if (!response.body) {
     client.clear();
     return response;
   }
 
-  // Checked before the encoding guard below: in component mode the page is still rendering while
-  // it streams, <QueryState /> included, so the client may only go once the stream has ended. The
-  // bytes pass through untouched, so a compressed or non-UTF-8 page is safe here.
-  if (!writer) return releasedAtEnd(response, response.body, client);
-
+  // Everything below can still be rendering while it streams: `next()` resolves once the page's
+  // frontmatter has run, and its components render as the body is read — in component mode
+  // <QueryState /> among them. So the client goes only once the stream has ended. Where no state
+  // is written, the bytes pass through untouched, which is also what keeps a compressed or
+  // non-UTF-8 page intact.
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!writer || !contentType.includes("text/html")) {
+    return releasedAtEnd(response, response.body, client);
+  }
   if (!isUtf8Text(response.headers, contentType)) {
     warnUnwritableOnce();
-    client.clear();
-    return response;
+    return releasedAtEnd(response, response.body, client);
   }
 
   const decoder = new TextDecoder("utf-8", { ignoreBOM: true }); // keep a BOM the page was sent with

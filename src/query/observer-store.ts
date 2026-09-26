@@ -3,7 +3,7 @@ import { atom, onMount, type ReadableAtom } from "nanostores";
 // Server checks here are written inline, `(!browserBuild && isServer())`, so a client build folds
 // them to false and drops the branches behind them. Keep them inline; a helper function defeats
 // the fold: neither esbuild nor Rolldown inlines it.
-import { browserBuild } from "virtual:astro-tanstack-query/config";
+import { browserBuild, defaultOptions, settings } from "virtual:astro-tanstack-query/config";
 import { pageClient } from "./client";
 import { isServer, requestScope } from "./scope-reader";
 
@@ -40,7 +40,15 @@ function isStore<T>(value: T | ReadableAtom<T>): value is ReadableAtom<T> {
 // this throwaway client and its one empty query until it fires. The request client is different:
 // an explicit `gcTime` arms timers there that only the end-of-request `clear()` cancels
 // (design.md §3.2).
-const detachedClient = () => new QueryClient();
+// It takes the defaults the request and page clients take: the server snapshot reports what a
+// mount would do (D5), and whether a mount would fetch depends on staleTime and refetchOnMount.
+const detachedClient = () =>
+  new QueryClient({
+    defaultOptions: {
+      ...defaultOptions,
+      queries: { staleTime: settings.ssrStaleTime, ...defaultOptions.queries },
+    },
+  });
 
 let warnedNoScope = false;
 function warnNoScopeOnce(): void {

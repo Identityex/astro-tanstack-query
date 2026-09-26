@@ -235,22 +235,34 @@ it("drops a content-length the body has outgrown", async () => {
 
 it("leaves non-html and empty-state responses untouched", async () => {
   const json = new Response('{"a":1}', { headers: { "content-type": "application/json" } });
-  expect(injectState(json, await prefetched(), writer)).toBe(json);
+  const passed = injectState(json, await prefetched(), writer);
+  expect(passed.headers.get("content-type")).toBe("application/json");
+  expect(await passed.text()).toBe('{"a":1}');
   const html = htmlResponse(["<body></body>"]);
   expect(await injectState(html, new QueryClient(), writer).text()).toBe("<body></body>");
 });
 
-it("releases the request client once for a response that carries no page", async () => {
-  for (const response of [
-    new Response('{"a":1}', { headers: { "content-type": "application/json" } }),
-    new Response(null, { status: 302, headers: { location: "/elsewhere" } }),
-  ]) {
-    const client = await retaining();
-    const clear = vi.spyOn(client, "clear");
-    expect(injectState(response, client, writer)).toBe(response);
-    expect(clear).toHaveBeenCalledTimes(1);
-    expect(client.getQueryCache().getAll()).toHaveLength(0);
-  }
+it("releases the request client at once, and returns the same object, for a response with no body", async () => {
+  const client = await retaining();
+  const clear = vi.spyOn(client, "clear");
+  const redirect = new Response(null, { status: 302, headers: { location: "/elsewhere" } });
+  expect(injectState(redirect, client, writer)).toBe(redirect);
+  expect(clear).toHaveBeenCalledTimes(1);
+  expect(client.getQueryCache().getAll()).toHaveLength(0);
+});
+
+it("releases the request client for a non-html body only once it has streamed", async () => {
+  const client = await retaining();
+  const clear = vi.spyOn(client, "clear");
+  // An endpoint can stream: its body may still be reading the client when next() resolves.
+  const json = paced([encoder.encode('{"a":'), encoder.encode("1}")], {
+    "content-type": "application/json",
+  });
+  const response = injectState(json, client, writer);
+  expect(clear).not.toHaveBeenCalled();
+  expect(await response.text()).toBe('{"a":1}');
+  expect(clear).toHaveBeenCalledTimes(1);
+  expect(client.getQueryCache().getAll()).toHaveLength(0);
 });
 
 it.each([
@@ -311,19 +323,20 @@ it("with no writer, passes a compressed page through byte for byte without warni
   expect(warn).not.toHaveBeenCalled();
 });
 
-it("returns a compressed page untouched and releases the client", async () => {
+it("passes a compressed page through byte for byte and releases the client once it has streamed", async () => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   const client = await retaining();
   const clear = vi.spyOn(client, "clear");
   const gzipped = Uint8Array.from(gzipSync("<!DOCTYPE html><html><body></body></html>"));
-  const response = paced([gzipped], { "content-encoding": "gzip" });
-  expect(injectState(response, client, writer)).toBe(response);
+  const response = injectState(paced([gzipped], { "content-encoding": "gzip" }), client, writer);
+  // Its components render while the body streams, so they still find what the page prefetched.
+  expect(clear).not.toHaveBeenCalled();
   expect(new Uint8Array(await response.arrayBuffer())).toEqual(gzipped);
   expect(clear).toHaveBeenCalledTimes(1);
   expect(client.getQueryCache().getAll()).toHaveLength(0);
 });
 
-it("returns a page in a legacy charset untouched and releases the client", async () => {
+it("passes a page in a legacy charset through untouched and releases the client once it has streamed", async () => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   const client = await retaining();
   const latin1 = Uint8Array.from([
@@ -331,8 +344,12 @@ it("returns a page in a legacy charset untouched and releases the client", async
     0xe9,
     ...encoder.encode("</body></html>"),
   ]);
-  const response = paced([latin1], { "content-type": "text/html; charset=iso-8859-1" });
-  expect(injectState(response, client, writer)).toBe(response);
+  const response = injectState(
+    paced([latin1], { "content-type": "text/html; charset=iso-8859-1" }),
+    client,
+    writer,
+  );
+  expect(client.getQueryCache().getAll()).toHaveLength(1);
   expect(new Uint8Array(await response.arrayBuffer())).toEqual(latin1);
   expect(client.getQueryCache().getAll()).toHaveLength(0);
 });

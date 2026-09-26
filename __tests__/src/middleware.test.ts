@@ -105,12 +105,15 @@ it.each<Emit>(["middleware", "component"])(
   "releases the request client after an endpoint in %s mode",
   async (emit) => {
     const ctx = context();
-    await withEmit(emit, () =>
+    const response = await withEmit(emit, () =>
       respond(ctx, async () => {
         await prefetchRetained(ctx);
         return new Response('{"ok":true}', { headers: { "content-type": "application/json" } });
       }),
     );
+    // An endpoint's body can still be streaming when it returns, so the client lasts until it ends.
+    expect(ctx.locals.queryClient.getQueryCache().getAll()).toHaveLength(1);
+    expect(await response.text()).toBe('{"ok":true}');
     expect(ctx.locals.queryClient.getQueryCache().getAll()).toHaveLength(0);
   },
 );

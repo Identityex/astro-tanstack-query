@@ -69,25 +69,28 @@ export default [
   {
     // 1.6 not 1.5: making fragment caching opt-in (an un-annotated hx-get must always revalidate,
     // rather than inheriting the query client's 60 s default) cost 22 B of resolution logic and
-    // the comment explaining it. Measured 1,597 B (size-limit), 9 B of which is the `browserBuild`
-    // flag esbuild cannot fold. Vite's build of this entry folds it: 1,532 B, down from 1,600 B
-    // before the flag (Vite 8 `build()`, minified, the same peers external, gzip level 9).
+    // the comment explaining it. 1.65 not 1.6: the page client reads state only from a <script>
+    // (a class or id on user HTML survives sanitizers, a script does not), and this row bundles
+    // that client: 1,597 B before, 1,625 B after (size-limit). 9 B of it is the `browserBuild`
+    // flag esbuild cannot fold; Vite's build folds it, 1,532 B before the <script> check (Vite 8
+    // `build()`, minified, the same peers external, gzip level 9).
     name: "htmx on top of query",
     path: "dist/htmx/index.js",
-    limit: "1.6 kB",
+    limit: "1.65 kB",
     gzip: true,
     modifyEsbuildConfig: onTopOfQuery,
   },
   {
     // `onTopOfQuery` externalises the third-party peers but not this package's own /query entry, so
-    // this row re-bundles the createQuery/createMutation bridge the wrappers import — hence 1,935 B
+    // this row re-bundles the createQuery/createMutation bridge the wrappers import — hence 2,003 B
     // (size-limit) rather than the wrappers' own weight. The marginal cost of adding /actions to a
-    // page that already loads /query is 175 B (a createQuery + createMutation bundle with and
-    // without /actions, same pipeline). The row read 2,049 B, over this limit, until `define` above
-    // kept the re-bundled bridge's dev-only warning out of it.
+    // page that already loads /query is 207 B (a createQuery + createMutation bundle with and
+    // without /actions, same pipeline), 32 B of it `isActionError`, which types an Action's error
+    // apart from a failed request. 2.05 not 2 kB: that guard, plus the script-only state read in
+    // the page client this row re-bundles, took it from 1,935 B to 2,003 B.
     name: "actions on top of query",
     path: "dist/actions/index.js",
-    limit: "2 kB",
+    limit: "2.05 kB",
     gzip: true,
     modifyEsbuildConfig: onTopOfQuery,
   },

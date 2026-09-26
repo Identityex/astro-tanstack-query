@@ -62,7 +62,9 @@ export function pageClient(): QueryClient {
     // hydrating, so one that throws is not retried on every later mutation.
     for (const element of [...pending]) {
       element.classList.remove(STATE_ELEMENT_ID);
-      hydrateElement(client, element);
+      // Only a <script> is state: a class survives HTML sanitizers, a script element does not, so
+      // user content styled with this class can never write into the cache.
+      if (element.tagName === "SCRIPT") hydrateElement(client, element);
     }
   };
   islands = new MutationObserver(drain);
@@ -75,7 +77,9 @@ export function pageClient(): QueryClient {
 
 /** Hydrates `client` from `doc`'s state element. Newer `dataUpdatedAt` wins; older is ignored. */
 export function hydrateFromDocument(client: QueryClient, doc: Document): boolean {
-  const element = doc.getElementById(STATE_ELEMENT_ID);
+  // Not getElementById: an id survives HTML sanitizers, so user content earlier in the page could
+  // carry it too. Only the page can put a <script> there.
+  const element = doc.querySelector(`script#${STATE_ELEMENT_ID}`);
   if (!element) return false;
   hydrateElement(client, element);
   return true;
