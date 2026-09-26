@@ -27,6 +27,13 @@ it("generates the json default module", () => {
   expect(code).toContain("export const defaultOptions = user.defaultOptions ?? {};");
   expect(code).toContain('"emit":"middleware"');
   expect(code).toContain('"ssrStaleTime":60000');
+  // The browser reads this object too: an unset origin must not reach it, even as null.
+  expect(code).not.toContain("origin");
+});
+
+it("carries ssr.origin in the settings when it is set", () => {
+  const load = plugin({ ssr: { origin: "https://example.com/" } }).load as Loader;
+  expect(load("\0" + VIRTUAL_ID)).toContain('"origin":"https://example.com"');
 });
 
 it("imports the user config file and the devalue serializer when asked", () => {

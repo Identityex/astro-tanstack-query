@@ -83,6 +83,8 @@ export interface TestRequestInit {
    */
   queryClient?: QueryClient;
   callAction?: RequestScope["callAction"];
+  /** Whether the code under test sees a page being prerendered by `astro build`. */
+  isPrerendered?: boolean;
 }
 
 /**
@@ -102,6 +104,7 @@ export function runInTestRequest<T>(fn: (scope: RequestScope) => T, init: TestRe
       init.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } }),
     url: init.url instanceof URL ? init.url : new URL(init.url ?? DEFAULT_ORIGIN),
     callAction: init.callAction,
+    isPrerendered: init.isPrerendered,
   };
   return runInScope(scope, () => fn(scope));
 }

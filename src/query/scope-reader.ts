@@ -8,6 +8,8 @@ export interface RequestScope {
   queryClient: QueryClient;
   url: URL;
   callAction?: APIContext["callAction"];
+  /** True while `astro build` prerenders the page, when `url` is the build origin rather than a visitor's request. */
+  isPrerendered?: boolean;
 }
 
 interface ScopeHolder {

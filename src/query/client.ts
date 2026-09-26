@@ -9,6 +9,7 @@ import { isServer, requestScope } from "./scope-reader";
 if (!isServer()) await documentReady(document);
 
 let page: QueryClient | undefined;
+let islands: MutationObserver | undefined;
 
 /**
  * The one client for this page. Created on first use, never injected page-wide (D3),
@@ -34,12 +35,33 @@ export function pageClient(): QueryClient {
     },
   });
   client.mount();
-  hydrateFromDocument(client, document);
+  // Wired up before anything hydrates: a blob that cannot hydrate throws out of this call (on
+  // purpose, for a serializer mismatch), and an unrecorded client would be built and mounted again
+  // by every store read after it.
+  page = client;
   // View Transitions: the module survives navigation, the document does not.
   document.addEventListener("astro:before-swap", (event) => {
     hydrateFromDocument(client, (event as Event & { newDocument: Document }).newDocument);
   });
-  page = client;
+  // A server island's state arrives later, in the id-less element its HTML carries (D6). Astro
+  // inserts that HTML in one call, and the observer's microtask is queued before any island inside
+  // it has finished the awaited import that precedes its hydration, so the state is in the cache
+  // before that island first reads. Watched here rather than checked on each read: a live
+  // collection walks the document again after every DOM change, and reads run on every render.
+  const pending = document.getElementsByClassName(STATE_ELEMENT_ID);
+  const drain = (): void => {
+    // Spread first: dropping the class takes an element out of the live collection. Dropped before
+    // hydrating, so one that throws is not retried on every later mutation.
+    for (const element of [...pending]) {
+      element.classList.remove(STATE_ELEMENT_ID);
+      hydrateElement(client, element);
+    }
+  };
+  islands = new MutationObserver(drain);
+  islands.observe(document, { childList: true, subtree: true });
+  hydrateFromDocument(client, document);
+  // For a page whose first store read comes from inside a server island that has already arrived.
+  drain();
   return client;
 }
 
@@ -47,6 +69,11 @@ export function pageClient(): QueryClient {
 export function hydrateFromDocument(client: QueryClient, doc: Document): boolean {
   const element = doc.getElementById(STATE_ELEMENT_ID);
   if (!element) return false;
+  hydrateElement(client, element);
+  return true;
+}
+
+function hydrateElement(client: QueryClient, element: Element): void {
   const name = element.getAttribute("data-serializer");
   if (name !== stateReader.name) {
     throw new TanstackQueryAstroError(
@@ -55,7 +82,6 @@ export function hydrateFromDocument(client: QueryClient, doc: Document): boolean
     );
   }
   hydrate(client, stateReader.parse(element.textContent ?? ""));
-  return true;
 }
 
 /** The right client for where you are: the page client in the browser, the request client on the server. */
@@ -73,6 +99,9 @@ export function getQueryClient(): QueryClient {
 
 /** @internal Test hook: forget the page client so the next pageClient() creates a fresh one. */
 export function resetPageClientForTests(): void {
+  // Left observing, the old client's drain would take the next test's island state first.
+  islands?.disconnect();
+  islands = undefined;
   page?.unmount();
   page = undefined;
 }
