@@ -4,8 +4,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # npm trusted publishing (OIDC) and provenance attestations.
-  id-token: write
+  # Publishes to GitHub Packages (npm.pkg.github.com) with the workflow's own token.
+  packages: write
 concurrency: release-${{ github.ref }}
 jobs:
   release:
@@ -16,19 +16,21 @@ jobs:
         # No dependency cache in the publishing job: a poisoned cache would reach the npm tarball.
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
+          registry-url: https://npm.pkg.github.com
+          scope: "@identityex"
       - run: npm ci
       # Opens or updates the "Version packages" pull request while changesets are pending, and
       # publishes when that pull request is merged.
       - uses: changesets/action@v2
         with:
-          # v2 publishes nothing without publish-script. `release` builds before publishing.
-          publish-script: npm run release
+          # v2 publishes nothing without publish-script. `release:github` renames the package to
+          # its @identityex scope for GitHub Packages, then builds and publishes. It runs only in
+          # publish mode, so the rename never lands in the version pull request.
+          publish-script: npm run release:github
           version-script: npx changeset version
           pr-title: "chore: version packages"
           commit-message: "chore: version packages"
         env:
-          # Read through the .npmrc that setup-node's registry-url writes. Leave the secret unset once
-          # npm trusted publishing is configured; OIDC then needs no token. Trusted publishing can
-          # only be configured on a package that already exists, so the first release is manual.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Read through the .npmrc that setup-node's registry-url writes.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
