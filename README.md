@@ -115,8 +115,20 @@ entry. A plain `<script>` uses `store.subscribe()`.
 
 ## Install
 
+The package is published to GitHub Packages as `@identityex/astro-tanstack-query`. Point the
+`@identityex` scope at GitHub's registry once, in your project's `.npmrc`, with a token that has
+`read:packages`:
+
+```ini
+@identityex:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Then install it under its source name with an npm alias, so imports stay
+`astro-tanstack-query/...` (the shipped components import it by that name):
+
 ```sh
-npm install astro-tanstack-query @tanstack/query-core nanostores
+npm install astro-tanstack-query@npm:@identityex/astro-tanstack-query @tanstack/query-core nanostores
 ```
 
 Add the binding for each framework you use, for example:
